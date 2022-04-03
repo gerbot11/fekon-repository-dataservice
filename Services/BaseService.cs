@@ -1,15 +1,11 @@
 ﻿using fekon_repository_datamodel.Models;
 using MySql.Data.MySqlClient;
 using System;
-using System.Collections.Generic;
 using System.Data;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace fekon_repository_dataservice.Services
 {
-    public class BaseService
+    public abstract class BaseService
     {
         public readonly REPOSITORY_DEVContext _context;
         public BaseService(REPOSITORY_DEVContext context)

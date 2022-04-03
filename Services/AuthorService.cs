@@ -9,12 +9,11 @@ using System.Threading.Tasks;
 
 namespace fekon_repository_dataservice.Services
 {
-    public class AuthorService : IAuthorService
+    public class AuthorService : BaseService, IAuthorService
     {
-        private readonly REPOSITORY_DEVContext _context;
-        public AuthorService(REPOSITORY_DEVContext context)
+        public AuthorService(REPOSITORY_DEVContext context) 
+            : base(context)
         {
-            _context = context;
         }
 
         public IQueryable<Author> GetAuthorsForIndexDash(string query, string isadv)
