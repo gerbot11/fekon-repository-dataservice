@@ -2,6 +2,7 @@
 using fekon_repository_datamodel.MergeModels;
 using fekon_repository_datamodel.Models;
 using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -50,7 +51,7 @@ namespace fekon_repository_dataservice.Services
             {
                 result = result.Where(u => u.Email.Contains(query) || u.UserName.Contains(query) || u.PhoneNumber.Contains(query));
             }
-            return result;
+            return result.Include(e => e.RefEmployees);
         }
 
         public MergeAdminInfo GetAdminInfoByIdAsync(string id, int pagenumber, ref bool canloadmore)
@@ -106,6 +107,17 @@ namespace fekon_repository_dataservice.Services
         public RefEmployee GetRefEmployeeObjByUserId(string userid)
         {
             return _context.RefEmployees.Where(r => r.UserId == userid).FirstOrDefault();
+        }
+
+        public IEnumerable<AspNetRole> GetListRole()
+        {
+            return _context.AspNetRoles;
+        }
+
+        public async Task CreateNewAdminEmpDataAsync(RefEmployee refEmployee)
+        {
+            await _context.AddAsync(refEmployee);
+            await _context.SaveChangesAsync();
         }
 
         public async Task EditRefEmpAsync(RefEmployee re, string fileLoc, string username, IFormFile file)

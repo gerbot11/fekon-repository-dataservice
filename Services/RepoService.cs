@@ -252,7 +252,7 @@ namespace fekon_repository_dataservice.Services
             return resultMsg;
         }
 
-        public async Task<string> EditRepoAsync(Repository repository, List<IFormFile> files, List<long> authorIds, List<string> langCode)
+        public async Task<string> EditRepoAsync(Repository repository, List<IFormFile> files, List<long> authorIds, List<string> langCode, string userEdit)
         {
             string resultMsg = string.Empty;
             if (IsValidInput(repository, files, ref resultMsg))
@@ -323,7 +323,7 @@ namespace fekon_repository_dataservice.Services
 
                 _context.Update(repository);
                 await _context.SaveChangesAsync();
-                await _userService.AddUserActHist(repository.UsrCreate, $"Update Repository with Title : {repository.Title}", "Update Repository");
+                await _userService.AddUserActHist(userEdit, $"Update Repository with Title : {repository.Title}", "Update Repository");
             }
             return resultMsg;
         }
