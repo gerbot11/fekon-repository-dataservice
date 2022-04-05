@@ -236,7 +236,7 @@ namespace fekon_repository_dataservice.Services
                     repository.Language = lang;
 
                     await _context.SaveChangesAsync();
-                    await _userService.AddUserActHist(repository.UsrCreate, $"New Submision with Title : {repository.Title}", "Submit New Repository");
+                    await _userService.AddUserActHist(repository.UsrCreate, $"New Submision with ID : {repository.RepositoryId}", "Submit New Repository");
                 }
                 catch (Exception ex)
                 {
@@ -323,7 +323,7 @@ namespace fekon_repository_dataservice.Services
 
                 _context.Update(repository);
                 await _context.SaveChangesAsync();
-                await _userService.AddUserActHist(userEdit, $"Update Repository with Title : {repository.Title}", "Update Repository");
+                await _userService.AddUserActHist(userEdit, $"Update Repository with ID : {repository.RepositoryId}", "Update Repository");
             }
             return resultMsg;
         }
@@ -360,7 +360,6 @@ namespace fekon_repository_dataservice.Services
 
             _context.Repositories.Remove(repository);
             await _context.SaveChangesAsync();
-            await _userService.AddUserActHist(userid, $"Deleting Repository with Title : {repoTitle}", "Delete Repository");
         }
 
         public List<string> CheckFileStatus(IEnumerable<FileDetail> fileDetails)

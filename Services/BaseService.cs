@@ -32,6 +32,7 @@ namespace fekon_repository_dataservice.Services
             return dt;
         }
 
+        //Pakai ini par filter Tahun, entah untuk select tahun MySql dan EF Core seng bisa (harus full date)
         public static void SetParamDateBetweenYear(int yearStart, int yearTo, out DateTime dtStart, out DateTime dtTo)
         {
             dtStart = new(yearStart, 1, 1);
