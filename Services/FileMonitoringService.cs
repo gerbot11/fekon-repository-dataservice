@@ -21,8 +21,11 @@ namespace fekon_repository_dataservice.Services
         public IQueryable<FileMonitoringHist> GetMonitoringHistsForPaging(DateTime? dtfrom, DateTime? dtto)
         {
             IQueryable<FileMonitoringHist> fileMonitorings = _context.FileMonitoringHists;
+            if(dtfrom is not null && dtto is null)
+                fileMonitorings = fileMonitorings.Where(f => f.RunningDate >= dtfrom);
+
             if (dtfrom is not null && dtto is not null)
-                fileMonitorings.Where(f => f.RunningDate >= dtfrom && f.RunningDate <= dtto);
+                fileMonitorings = fileMonitorings.Where(f => f.RunningDate >= dtfrom && f.RunningDate <= dtto);
 
             return fileMonitorings;
         }

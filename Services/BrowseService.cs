@@ -86,7 +86,8 @@ namespace fekon_repository_dataservice.Services
             IQueryable<Repository> repositories = _context.Repositories.Where(r => r.PublishDate >= dtStart && r.PublishDate <= dtEnd);
 
             return repositories
-                .Include(d => d.RepositoryDs).ThenInclude(a => a.Author);
+                .Include(d => d.RepositoryDs).ThenInclude(a => a.Author)
+                .Include(s => s.RepoStatistics);
         }
     }
 }

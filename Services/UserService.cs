@@ -16,6 +16,7 @@ namespace fekon_repository_dataservice.Services
     {
         private const string VISITOR = "VISITOR";
         private const string ADMIN = "ADMIN";
+        private const string SAUPERADM = "SA";
         public UserService(REPOSITORY_DEVContext context)
             : base(context)
         {
@@ -36,6 +37,48 @@ namespace fekon_repository_dataservice.Services
             }
             return result;
         }
+
+        public IEnumerable<MergeUserDownloadHist> GetDownloadUserStatistics(string id, DateTime? dt, int pagenumber, out bool canload)
+        {
+            int takeitem = pagenumber * 5;
+            if (takeitem == 0)
+            {
+                takeitem = 5;
+            }
+
+            IEnumerable<DateTime> downloadDate = _context.DownloadStatistics.Where(d => d.UserId == id).Select(d => d.DownloadDate.Date).Distinct().Take(takeitem).OrderByDescending(o => o.Date);
+            if (dt is not null)
+            {
+                downloadDate = downloadDate.Where(d => d.Date == dt);
+            }
+            downloadDate = downloadDate.OrderByDescending(o => o.Date);
+            int dataSize = _context.DownloadStatistics.Where(d => d.UserId == id).Select(d => d.DownloadDate.Date).Distinct().Count();
+            int totalPage = (int)Math.Ceiling(dataSize / (double)5);
+            canload = pagenumber < totalPage;
+
+            List<MergeUserDownloadHist> listData = new();
+            List<DownloadActivityDetail> listAct = new();
+            foreach (DateTime item in downloadDate)
+            {
+                MergeUserDownloadHist mud = new();
+                mud.DateActiivity = item;
+                mud.DownloadActivityDetails = from d in _context.DownloadStatistics
+                                              join f in _context.FileDetails on d.FileDetailId equals f.FileDetailId
+                                              join r in _context.Repositories on f.RepositoryId equals r.RepositoryId
+                                              where d.UserId == id && d.DownloadDate.Date == item
+                                              select new DownloadActivityDetail
+                                              {
+                                                  Action = "Download Repository File",
+                                                  FileName = f.FileName,
+                                                  RepositoryTitle = r.Title,
+                                                  DateTimeAct = d.DownloadDate
+                                              };
+
+                listData.Add(mud);
+            }
+
+            return listData;
+        }
         #endregion
 
         #region ADIMN
@@ -44,14 +87,15 @@ namespace fekon_repository_dataservice.Services
             IQueryable<AspNetUser> result = from u in _context.AspNetUsers
                                             join r in _context.AspNetUserRoles on u.Id equals r.UserId
                                             join rl in _context.AspNetRoles on r.RoleId equals rl.Id
-                                            where rl.NormalizedName == ADMIN
+                                            where rl.NormalizedName != VISITOR
                                             select u;
 
+            result = result.Include(e => e.RefEmployees);
             if (!string.IsNullOrWhiteSpace(query))
             {
-                result = result.Where(u => u.Email.Contains(query) || u.UserName.Contains(query) || u.PhoneNumber.Contains(query));
+                result = result.Where(u => u.Email.Contains(query) || u.UserName.Contains(query) || u.PhoneNumber.Contains(query) || u.RefEmployees.FirstOrDefault().EmployeeName.Contains(query));
             }
-            return result.Include(e => e.RefEmployees);
+            return result;
         }
 
         public MergeAdminInfo GetAdminInfoByIdAsync(string id, int pagenumber, ref bool canloadmore)
@@ -70,8 +114,7 @@ namespace fekon_repository_dataservice.Services
                 takeitem = defItemToShow;
             }
 
-            IEnumerable<DateTime> dateAct = _context.UserActivityHists
-                .Where(u => u.UserId == user.Id).Select(u => u.ActivityTime.Date).Distinct().Take(takeitem).OrderByDescending(o => o.Date);
+            IEnumerable<DateTime> dateAct = _context.UserActivityHists.Where(u => u.UserId == user.Id).Select(u => u.ActivityTime.Date).Distinct().Take(takeitem).OrderByDescending(o => o.Date);
             dateAct = dateAct.OrderByDescending(o => o.Date);
 
             int dataSize = _context.UserActivityHists.Where(u => u.UserId == id).Select(u => u.ActivityTime.Date).Distinct().Count();
@@ -79,8 +122,12 @@ namespace fekon_repository_dataservice.Services
             canloadmore = pagenumber < totalPage;
 
             int usrRepoSubmisionCnt = _context.Repositories.Where(r => r.UsrCreate == id).Count();
+            string userRole = (from r in _context.AspNetRoles
+                               join ur in _context.AspNetUserRoles on r.Id equals ur.RoleId
+                               where ur.UserId == id
+                               select r.Name).FirstOrDefault();
 
-            List<UserActivityHist> actHist = new();
+            List <UserActivityHist> actHist = new();
             List<ActivityDetail> listdetail = new();
             foreach (DateTime item in dateAct)
             {
@@ -98,7 +145,8 @@ namespace fekon_repository_dataservice.Services
                 AspNetUser = user,
                 UserActivityDetail = listdetail,
                 RefEmployee = refEmployee,
-                TotalRepositorySubmit = usrRepoSubmisionCnt
+                TotalRepositorySubmit = usrRepoSubmisionCnt,
+                UserRole = userRole == ADMIN ? "Administrator" : userRole == SAUPERADM ? "Super Admin" : "Visitor"
             };
 
             return mergeAdminInfo;
@@ -111,7 +159,7 @@ namespace fekon_repository_dataservice.Services
 
         public IEnumerable<AspNetRole> GetListRole()
         {
-            return _context.AspNetRoles;
+            return _context.AspNetRoles.Where(r => r.NormalizedName != VISITOR);
         }
 
         public async Task CreateNewAdminEmpDataAsync(RefEmployee refEmployee)
@@ -177,7 +225,7 @@ namespace fekon_repository_dataservice.Services
             using FileStream stream = new(fullPath, FileMode.Create);
             await file.CopyToAsync(stream);
 
-            return Path.Combine("\\user_img", username, file.FileName);
+            return Path.Combine("user_img", username, file.FileName);
         }
     }
 }

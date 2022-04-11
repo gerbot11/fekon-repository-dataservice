@@ -616,31 +616,14 @@ namespace fekon_repository_dataservice.Services
         private async Task<List<FileDetail>> UploadFileAsync(List<IFormFile> files, long collectionId)
         {
             string collCode = _context.RefCollections.Where(c => c.RefCollectionId.Equals(collectionId)).FirstOrDefault().CollCode;
-            long fileSize = files.Sum(f => f.Length);
-
             IConfigurationBuilder builder = new ConfigurationBuilder()
                             .SetBasePath(Directory.GetCurrentDirectory())
                             .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
                             .AddEnvironmentVariables();
             IConfiguration config = builder.Build();
-
             string filePath = config["UploadPath"];
-            string subDir = Path.Combine(filePath, collCode, DateTime.Now.ToString("yyyyMMdd"));
-            int cntFolder;
-            string finalPath;
 
-            if (Directory.Exists(subDir))
-            {
-                cntFolder = Directory.GetDirectories(subDir).Length + 1;
-                finalPath = Path.Combine(subDir, "_" + cntFolder.ToString());
-            }
-            else
-            {
-                cntFolder = 1;
-                finalPath = Path.Combine(subDir, "_" + cntFolder.ToString());
-            }
-
-            DirectoryInfo di = Directory.CreateDirectory(finalPath);
+            DirectoryInfo di = CreateDirectrory(filePath, collCode);
             di.Create();
 
             List<FileDetail> fileDetails = new();
@@ -652,6 +635,8 @@ namespace fekon_repository_dataservice.Services
                 string fullPath = Path.Combine(di.ToString(), newFname);
                 using FileStream stream = new(fullPath, FileMode.Create);
                 await item.CopyToAsync(stream);
+
+                long fileSize = item.Length;
 
                 FileDetail fd = new()
                 {

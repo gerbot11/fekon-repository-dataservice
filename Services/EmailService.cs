@@ -2,12 +2,9 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using System;
-using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Net;
 using System.Net.Mail;
-using System.Text;
 using System.Threading.Tasks;
 
 namespace fekon_repository_dataservice.Services
@@ -25,6 +22,7 @@ namespace fekon_repository_dataservice.Services
             string fromMail = GetSmtpMailConfig("SmtpEmailAcc");
             string fromPassword = GetSmtpMailConfig("SmtpEmailPass");
             string smtpHost = GetSmtpMailConfig("SmtpHost");
+            int smtpPort = Convert.ToInt32(GetSmtpMailConfig("SmtpPort"));
 
             MailMessage message = new();
             message.From = new MailAddress(fromMail);
@@ -35,7 +33,7 @@ namespace fekon_repository_dataservice.Services
 
             SmtpClient smtpClient = new(smtpHost)
             {
-                Port = 587,
+                Port = smtpPort,
                 Credentials = new NetworkCredential(fromMail, fromPassword),
                 EnableSsl = true,
             };

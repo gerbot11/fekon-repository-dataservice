@@ -54,7 +54,7 @@ namespace fekon_repository_dataservice.Services
                                                                  select new MergeAuthorGrouping
                                                                  {
                                                                      Id = grpRes.Key.AuthorId,
-                                                                     Name = $"{grpRes.Key.LastName}, {grpRes.Key.FirstName}",
+                                                                     Name = string.IsNullOrEmpty(grpRes.Key.LastName) ? $"{ grpRes.Key.FirstName }" : $"{grpRes.Key.LastName}, {grpRes.Key.FirstName}",
                                                                      RepoCount = grpRes.Count()
                                                                  }).Take(10).ToListAsync();
             return authorRepo;

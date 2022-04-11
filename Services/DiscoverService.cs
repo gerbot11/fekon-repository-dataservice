@@ -39,7 +39,7 @@ namespace fekon_repository_dataservice.Services
                     rep = rep.Where(r => r.CollectionDid == subcategory);
             }
 
-            return !rep.Any() ? null : rep;
+            return rep;
         }
 
         public IQueryable<Author> DiscoverAuthor(string category, long subcategory, char? startChar)

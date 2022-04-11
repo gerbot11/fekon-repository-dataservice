@@ -2,6 +2,7 @@
 using MySql.Data.MySqlClient;
 using System;
 using System.Data;
+using System.IO;
 
 namespace fekon_repository_dataservice.Services
 {
@@ -30,6 +31,26 @@ namespace fekon_repository_dataservice.Services
             con.Close();
 
             return dt;
+        }
+
+        public static DirectoryInfo CreateDirectrory(string rootpath, string childpath)
+        {
+            string subDir = Path.Combine(rootpath, childpath, DateTime.Now.ToString("yyyyMMdd"));
+            int cntFolder;
+            string finalPath;
+            if (Directory.Exists(subDir))
+            {
+                cntFolder = Directory.GetDirectories(subDir).Length + 1;
+                finalPath = Path.Combine(subDir, "_" + cntFolder.ToString());
+            }
+            else
+            {
+                cntFolder = 1;
+                finalPath = Path.Combine(subDir, "_" + cntFolder.ToString());
+            }
+
+            DirectoryInfo di = Directory.CreateDirectory(finalPath);
+            return di;
         }
 
         //Pakai ini par filter Tahun, entah untuk select tahun MySql dan EF Core seng bisa (harus full date)
