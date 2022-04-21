@@ -1,4 +1,5 @@
 ﻿using fekon_repository_api;
+using fekon_repository_datamodel.MergeModels;
 using fekon_repository_datamodel.Models;
 using Microsoft.EntityFrameworkCore;
 using System;
@@ -17,12 +18,11 @@ namespace fekon_repository_dataservice.Services
 
         public IQueryable<Repository> GeneralSearch(string query, string category = "", long subcategory = 0)
         {
-            IQueryable<Repository> rep;
-
             if (string.IsNullOrWhiteSpace(query) || string.IsNullOrEmpty(query))
                 return null;
             else
             {
+                IQueryable<Repository> rep;
                 rep = _context.Repositories.Include(r => r.RepositoryDs)
                                  .ThenInclude(a => a.Author)
                              .Include(c => c.RefCollection)
@@ -37,12 +37,12 @@ namespace fekon_repository_dataservice.Services
 
                 if (subcategory > 0)
                     rep = rep.Where(r => r.CollectionDid == subcategory);
-            }
 
-            return rep;
+                return rep;
+            }
         }
 
-        public IQueryable<Author> DiscoverAuthor(string category, long subcategory, char? startChar)
+        public IQueryable<MergeAuthorGrouping> DiscoverAuthor(string category, long subcategory, char? startChar)
         {
             IQueryable<Author> authors = _context.Authors;
 
@@ -58,18 +58,54 @@ namespace fekon_repository_dataservice.Services
             if (startChar is not null)
             {
                 authors = authors
-                    .Where(r => r.FirstName.Substring(0, 1) == startChar.ToString())
-                    .OrderBy(o => o.FirstName)
-                    .AsNoTracking();
+                    .Where(r => r.FirstName.Substring(0, 1) == startChar.ToString());
             }
 
-            IQueryable<Author> finalRes = from a in authors
-                                          join r in _context.RepositoryDs on a.AuthorId equals r.AuthorId
-                                          join rep in _context.Repositories on r.RepositoryId equals rep.RepositoryId
-                                          where rep.RefCollectionId == rcId && rep.CollectionDid == colldId
-                                          select a;
+            IQueryable<MergeAuthorGrouping> finalRes = from a in authors
+                                                       join r in _context.RepositoryDs on a.AuthorId equals r.AuthorId
+                                                       join rep in _context.Repositories on r.RepositoryId equals rep.RepositoryId
+                                                       orderby a.FirstName ascending
+                                                       where rep.RefCollectionId == rcId && rep.CollectionDid == colldId
+                                                       group a by new { a.AuthorId, a.FirstName, a.LastName } into grpRes
+                                                       where grpRes.Count() > 0
+                                                       select new MergeAuthorGrouping
+                                                       {
+                                                           Id = grpRes.Key.AuthorId,
+                                                           Name = string.IsNullOrEmpty(grpRes.Key.LastName) ? $"{ grpRes.Key.FirstName }" : $"{grpRes.Key.LastName}, {grpRes.Key.FirstName}",
+                                                           RepoCount = grpRes.Count()
+                                                       };
 
             return finalRes;
+        }
+
+        public IQueryable<MergeAuthorGrouping> DiscoverMoreAuthor(string query, string isAdvisior, char? startChar)
+        {
+            IQueryable<Author> authors = _context.Authors.Where(a => a.IsAdvisor == isAdvisior);
+            if (!string.IsNullOrWhiteSpace(query))
+            {
+                authors = authors.Where(a => a.FirstName.Contains(query) || a.LastName.Contains(query));
+            }
+
+            if (startChar is not null)
+            {
+                authors = authors
+                    .Where(r => r.FirstName.Substring(0, 1) == startChar.ToString());
+            }
+
+            IQueryable<MergeAuthorGrouping> authorRepo = (from a in authors
+                                                          join rd in _context.RepositoryDs on a.AuthorId equals rd.AuthorId
+                                                          join r in _context.Repositories on rd.RepositoryId equals r.RepositoryId
+                                                          group a by new { a.AuthorId, a.FirstName, a.LastName } into grpRes
+                                                          orderby grpRes.Count() descending
+                                                          where grpRes.Count() > 0
+                                                          select new MergeAuthorGrouping
+                                                          {
+                                                              Id = grpRes.Key.AuthorId,
+                                                              Name = string.IsNullOrEmpty(grpRes.Key.LastName) ? $"{ grpRes.Key.FirstName }" : $"{grpRes.Key.LastName}, {grpRes.Key.FirstName}",
+                                                              RepoCount = grpRes.Count()
+                                                          });
+
+            return authorRepo;
         }
 
         public IQueryable<DateTime> DiscoverPublishDt(string category, long subcategory, DateTime dateFrom, DateTime dateTo)

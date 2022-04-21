@@ -49,6 +49,24 @@ namespace fekon_repository_dataservice.Services
             IEnumerable<MergeAuthorGrouping> authorRepo = await (from a in _context.Authors
                                                                  join rd in _context.RepositoryDs on a.AuthorId equals rd.AuthorId
                                                                  join r in _context.Repositories on rd.RepositoryId equals r.RepositoryId
+                                                                 where a.IsAdvisor == "0"
+                                                                 orderby r.UploadDate descending
+                                                                 group a by new { a.AuthorId, a.FirstName, a.LastName } into grpRes
+                                                                 select new MergeAuthorGrouping
+                                                                 {
+                                                                     Id = grpRes.Key.AuthorId,
+                                                                     Name = string.IsNullOrEmpty(grpRes.Key.LastName) ? $"{ grpRes.Key.FirstName }" : $"{grpRes.Key.LastName}, {grpRes.Key.FirstName}",
+                                                                     RepoCount = grpRes.Count()
+                                                                 }).Take(10).ToListAsync();
+            return authorRepo;
+        }
+
+        public async Task<IEnumerable<MergeAuthorGrouping>> GetListAdvisiorForSideMenu()
+        {
+            IEnumerable<MergeAuthorGrouping> authorRepo = await (from a in _context.Authors
+                                                                 join rd in _context.RepositoryDs on a.AuthorId equals rd.AuthorId
+                                                                 join r in _context.Repositories on rd.RepositoryId equals r.RepositoryId
+                                                                 where a.IsAdvisor == "1"
                                                                  orderby r.UploadDate descending
                                                                  group a by new { a.AuthorId, a.FirstName, a.LastName } into grpRes
                                                                  select new MergeAuthorGrouping

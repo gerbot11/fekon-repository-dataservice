@@ -1,6 +1,15 @@
 ﻿using fekon_repository_api;
 using fekon_repository_datamodel.MergeModels;
 using fekon_repository_datamodel.Models;
+using iText.Kernel.Colors;
+using iText.Kernel.Font;
+using iText.Kernel.Geom;
+using iText.Kernel.Pdf;
+using iText.Kernel.Pdf.Annot;
+using iText.Kernel.Pdf.Canvas;
+using iText.Kernel.Pdf.Extgstate;
+using iText.Kernel.Pdf.Xobject;
+using iText.Layout;
 using Microsoft.AspNetCore.Http;
 //using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
@@ -11,7 +20,6 @@ using System.Collections.Generic;
 using System.Data;
 using System.IO;
 using System.Linq;
-//using System.Linq.Dynamic;
 using System.Threading.Tasks;
 
 namespace fekon_repository_dataservice.Services
@@ -209,7 +217,7 @@ namespace fekon_repository_dataservice.Services
                 List<FileDetail> fileDetails = new();
                 try
                 {
-                    fileDetails = await UploadFileAsync(files, (long)repository.RefCollectionId);
+                    fileDetails = UploadFile(files, (long)repository.RefCollectionId);
                     repository.UploadDate = DateTime.Now;
                     _context.Add(repository);
 
@@ -270,6 +278,7 @@ namespace fekon_repository_dataservice.Services
                         }
                     }
 
+                    int downloadStatCnt = 0;
                     foreach (FileDetail item in deletedFile)
                     {
                         List<FileMonitoringResult> listFileMonitoringRes = _fileMonitoringService.GetMonitoringResultByFileDetailId(item.FileDetailId);
@@ -283,10 +292,27 @@ namespace fekon_repository_dataservice.Services
                                 _context.Update(fmh);
                             }
                         }
+
+                        List<DownloadStatistic> ds = _context.DownloadStatistics.Where(f => f.FileDetailId == item.FileDetailId).ToList();
+                        if (ds.Any())
+                        {
+                            downloadStatCnt = ds.Count;
+                            for (int i = 0; i < ds.Count; i++)
+                            {
+                                _context.DownloadStatistics.Remove(ds[i]);
+                            }
+                        }
                         _context.FileDetails.Remove(item);
                     }
 
-                    List<FileDetail> fileDetails = await UploadFileAsync(files, (long)repository.RefCollectionId);
+                    RepoStatistic rs = _context.RepoStatistics.Where(r => r.RepositoryId == repository.RepositoryId).FirstOrDefault();
+                    if (rs is not null)
+                    {
+                        rs.DownloadCount -= downloadStatCnt;
+                        _context.Update(rs);
+                    }
+
+                    List<FileDetail> fileDetails = UploadFile(files, (long)repository.RefCollectionId);
                     foreach (FileDetail fd in fileDetails)
                     {
                         repository.FileDetails.Add(fd);
@@ -350,6 +376,18 @@ namespace fekon_repository_dataservice.Services
 
             foreach (FileDetail fd in fileDetails)
             {
+                List<FileMonitoringResult> listFileMonitoringRes = _fileMonitoringService.GetMonitoringResultByFileDetailId(fd.FileDetailId);
+                if (listFileMonitoringRes.Any())
+                {
+                    for (int i = 0; i < listFileMonitoringRes.Count; i++)
+                    {
+                        FileMonitoringHist fmh = _fileMonitoringService.GetFileMonitoringHistObjById((long)listFileMonitoringRes[i].FileMonitoringHistId);
+                        _context.FileMonitoringResults.Remove(listFileMonitoringRes[i]);
+                        fmh.TotalFileProblem -= 1;
+                        _context.Update(fmh);
+                    }
+                }
+
                 List<DownloadStatistic> ds = _context.DownloadStatistics.Where(d => d.FileDetailId == fd.FileDetailId).ToList();
                 foreach (DownloadStatistic dsItem in ds)
                 {
@@ -602,7 +640,7 @@ namespace fekon_repository_dataservice.Services
 
             foreach (IFormFile item in files)
             {
-                string ext = Path.GetExtension(item.FileName);
+                string ext = System.IO.Path.GetExtension(item.FileName);
                 if (ext != ".pdf")
                 {
                     msg = "Please Select File with .PDF Format";
@@ -613,7 +651,7 @@ namespace fekon_repository_dataservice.Services
             return res;
         }
 
-        private async Task<List<FileDetail>> UploadFileAsync(List<IFormFile> files, long collectionId)
+        private List<FileDetail> UploadFile(List<IFormFile> files, long collectionId)
         {
             string collCode = _context.RefCollections.Where(c => c.RefCollectionId.Equals(collectionId)).FirstOrDefault().CollCode;
             IConfigurationBuilder builder = new ConfigurationBuilder()
@@ -631,18 +669,16 @@ namespace fekon_repository_dataservice.Services
             {
                 Guid g = Guid.NewGuid();
                 string originFilename = item.FileName;
-                string newFname = g.ToString() + Path.GetExtension(item.FileName);
-                string fullPath = Path.Combine(di.ToString(), newFname);
-                using FileStream stream = new(fullPath, FileMode.Create);
-                await item.CopyToAsync(stream);
-
+                string newFname = g.ToString() + System.IO.Path.GetExtension(item.FileName);
+                string fullPath = System.IO.Path.Combine(di.ToString(), newFname);
                 long fileSize = item.Length;
-
+                WatermarkPDF(item, fullPath);
+                //using FileStream stream = new(fullPath, FileMode.Create);
                 FileDetail fd = new()
                 {
                     FileName = newFname,
                     FilePath = di.ToString(),
-                    FileExt = Path.GetExtension(item.FileName),
+                    FileExt = System.IO.Path.GetExtension(item.FileName),
                     FileSize = fileSize.ToString(),
                     FileType = "M",
                     OriginFileName = originFilename
@@ -652,6 +688,84 @@ namespace fekon_repository_dataservice.Services
             }
 
             return fileDetails;
+        }
+
+        private static void WatermarkPDF(IFormFile pdfFile, string fullpath)
+        {
+            float watermarkTrimmingRectangleWidth = 300;
+            float watermarkTrimmingRectangleHeight = 300;
+
+            float formWidth = 600;
+            float formHeight = 600;
+            float formXOffset = 0;
+            float formYOffset = 0;
+
+            float xTranslation = 50;
+            float yTranslation = 33;
+
+            double rotationInRads = Math.PI / 3.5;
+
+            PdfFont font = PdfFontFactory.CreateFont();
+            float fontSize = 60;
+
+            Stream stream = pdfFile.OpenReadStream();
+
+            PdfDocument pdfDoc = new(new PdfReader(stream), new PdfWriter(fullpath));
+            var numberOfPages = pdfDoc.GetNumberOfPages();
+            PdfPage page = null;
+
+            for (var i = 1; i <= numberOfPages; i++)
+            {
+                page = pdfDoc.GetPage(i);
+                Rectangle ps = page.GetPageSize();
+
+                //Center the annotation
+                float bottomLeftX = ps.GetWidth() / 2 - watermarkTrimmingRectangleWidth / 2;
+                float bottomLeftY = ps.GetHeight() / 2 - watermarkTrimmingRectangleHeight / 2;
+                Rectangle watermarkTrimmingRectangle = new(bottomLeftX, bottomLeftY, watermarkTrimmingRectangleWidth, watermarkTrimmingRectangleHeight);
+
+                PdfWatermarkAnnotation watermark = new(watermarkTrimmingRectangle);
+
+                //Apply linear algebra rotation math
+                //Create identity matrix
+                AffineTransform transform = new AffineTransform();//No-args constructor creates the identity transform
+                                                                  //Apply translation
+                transform.Translate(xTranslation, yTranslation);
+                //Apply rotation
+                transform.Rotate(rotationInRads);
+
+                PdfFixedPrint fixedPrint = new PdfFixedPrint();
+                watermark.SetFixedPrint(fixedPrint);
+                //Create appearance
+                Rectangle formRectangle = new Rectangle(formXOffset, formYOffset, formWidth, formHeight);
+
+                //Observation: font XObject will be resized to fit inside the watermark rectangle
+                PdfFormXObject form = new PdfFormXObject(formRectangle);
+                PdfExtGState gs1 = new PdfExtGState().SetFillOpacity(0.2f);
+                PdfCanvas canvas = new PdfCanvas(form, pdfDoc);
+
+                float[] transformValues = new float[6];
+                transform.GetMatrix(transformValues);
+                canvas.SaveState()
+                    .BeginText().SetColor(DeviceRgb.BLACK, true).SetExtGState(gs1)
+                    .SetTextMatrix(transformValues[0], transformValues[1], transformValues[2], transformValues[3], transformValues[4], transformValues[5])
+                    .SetFontAndSize(font, fontSize)
+                    .ShowText("Repository FEB UNPATTI")
+                    .EndText()
+                    .RestoreState();
+
+                canvas.Release();
+
+                watermark.SetAppearance(PdfName.N, new PdfAnnotationAppearance(form.GetPdfObject()));
+                watermark.SetFlags(PdfAnnotation.PRINT);
+
+                page.AddAnnotation(watermark);
+
+            }
+            page?.Flush();
+            pdfDoc.Close();
+
+            //return pdfDoc;
         }
 
         private static void DeleteFolder(string[] files, string dir)

@@ -62,15 +62,18 @@ namespace fekon_repository_dataservice.Services
             return repositories;
         }
 
-        public IQueryable<Repository> PublishDtBrowseResult(DateTime publishDt)
+        public IQueryable<Repository> PublishDtBrowseResult(DateTime publishDt, string cat, long subcat)
         {
-            IQueryable<Repository> repositories = _context.Repositories.Where(r => r.PublishDate.Equals(publishDt));
-            repositories = repositories.Include(r => r.RepositoryDs)
-                .ThenInclude(p => p.Author)
-            .Include(c => c.CollectionD)
-            .Include(s => s.RepoStatistics)
-            .Include(rc => rc.RefCollection)
-            .AsNoTracking();
+            IQueryable<Repository> repositories = from r in _context.Repositories
+                                                  join rc in _context.RefCollections on r.RefCollectionId equals rc.RefCollectionId
+                                                  where r.PublishDate == publishDt && rc.CollCode == cat && r.CollectionDid == subcat
+                                                  select r;
+
+            repositories = repositories
+                .Include(r => r.RepositoryDs)
+                    .ThenInclude(p => p.Author)
+                .OrderBy(o => o.RepositoryId)
+                .AsNoTracking();
 
             return repositories;
         }
@@ -87,7 +90,9 @@ namespace fekon_repository_dataservice.Services
 
             return repositories
                 .Include(d => d.RepositoryDs).ThenInclude(a => a.Author)
-                .Include(s => s.RepoStatistics);
+                .Include(s => s.RepoStatistics)
+                .OrderBy(o => o.RepositoryId)
+                .AsNoTracking();
         }
     }
 }

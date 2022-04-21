@@ -46,13 +46,14 @@ namespace fekon_repository_dataservice.Services
                 takeitem = 5;
             }
 
-            IEnumerable<DateTime> downloadDate = _context.DownloadStatistics.Where(d => d.UserId == id).Select(d => d.DownloadDate.Date).Distinct().Take(takeitem).OrderByDescending(o => o.Date);
+            IQueryable<DownloadStatistic> statistics = _context.DownloadStatistics.Where(u => u.UserId == id);
             if (dt is not null)
-            {
-                downloadDate = downloadDate.Where(d => d.Date == dt);
-            }
+                statistics = statistics.Where(d => d.DownloadDate.Date == dt);
+
+            IEnumerable<DateTime> downloadDate = statistics.Select(d => d.DownloadDate.Date).Distinct().Take(takeitem).OrderByDescending(o => o.Date);
+            
             downloadDate = downloadDate.OrderByDescending(o => o.Date);
-            int dataSize = _context.DownloadStatistics.Where(d => d.UserId == id).Select(d => d.DownloadDate.Date).Distinct().Count();
+            int dataSize = statistics.Select(d => d.DownloadDate.Date).Distinct().Count();
             int totalPage = (int)Math.Ceiling(dataSize / (double)5);
             canload = pagenumber < totalPage;
 
@@ -62,10 +63,10 @@ namespace fekon_repository_dataservice.Services
             {
                 MergeUserDownloadHist mud = new();
                 mud.DateActiivity = item;
-                mud.DownloadActivityDetails = from d in _context.DownloadStatistics
+                mud.DownloadActivityDetails = from d in statistics
                                               join f in _context.FileDetails on d.FileDetailId equals f.FileDetailId
                                               join r in _context.Repositories on f.RepositoryId equals r.RepositoryId
-                                              where d.UserId == id && d.DownloadDate.Date == item
+                                              where d.DownloadDate.Date == item
                                               select new DownloadActivityDetail
                                               {
                                                   Action = "Download Repository File",
@@ -93,19 +94,19 @@ namespace fekon_repository_dataservice.Services
             result = result.Include(e => e.RefEmployees);
             if (!string.IsNullOrWhiteSpace(query))
             {
-                result = result.Where(u => u.Email.Contains(query) || u.UserName.Contains(query) || u.PhoneNumber.Contains(query) || u.RefEmployees.FirstOrDefault().EmployeeName.Contains(query));
+                result = result.Where(u => u.Email.Contains(query) || u.UserName.Contains(query) || u.PhoneNumber.Contains(query) 
+                || u.RefEmployees.FirstOrDefault().EmployeeName.Contains(query) || u.RefEmployees.FirstOrDefault().EmployeeNo.Contains(query));
             }
             return result;
         }
 
-        public MergeAdminInfo GetAdminInfoByIdAsync(string id, int pagenumber, ref bool canloadmore)
+        public MergeAdminInfo GetAdminInfoByIdAsync(string id, int pagenumber, DateTime? dtAct, ref bool canloadmore)
         {
             AspNetUser user = _context.AspNetUsers.Find(id);
             if (user is null)
             {
                 return null;
             }
-            RefEmployee refEmployee = _context.RefEmployees.Where(r => r.UserId == user.Id).FirstOrDefault();
 
             int defItemToShow = 5;
             int takeitem = pagenumber * defItemToShow;
@@ -114,24 +115,22 @@ namespace fekon_repository_dataservice.Services
                 takeitem = defItemToShow;
             }
 
-            IEnumerable<DateTime> dateAct = _context.UserActivityHists.Where(u => u.UserId == user.Id).Select(u => u.ActivityTime.Date).Distinct().Take(takeitem).OrderByDescending(o => o.Date);
+            IQueryable<UserActivityHist> userActData = _context.UserActivityHists.Where(u => u.UserId == id);
+            if (dtAct is not null)
+                userActData = userActData.Where(u => u.ActivityTime.Date == dtAct);
+
+            IEnumerable<DateTime> dateAct = userActData.Select(u => u.ActivityTime.Date).Distinct().Take(takeitem).OrderByDescending(o => o.Date);
             dateAct = dateAct.OrderByDescending(o => o.Date);
 
-            int dataSize = _context.UserActivityHists.Where(u => u.UserId == id).Select(u => u.ActivityTime.Date).Distinct().Count();
+            int dataSize = userActData.Select(u => u.ActivityTime.Date).Distinct().Count();
             int totalPage = (int)Math.Ceiling(dataSize / (double)defItemToShow);
             canloadmore = pagenumber < totalPage;
 
-            int usrRepoSubmisionCnt = _context.Repositories.Where(r => r.UsrCreate == id).Count();
-            string userRole = (from r in _context.AspNetRoles
-                               join ur in _context.AspNetUserRoles on r.Id equals ur.RoleId
-                               where ur.UserId == id
-                               select r.Name).FirstOrDefault();
-
-            List <UserActivityHist> actHist = new();
+            List<UserActivityHist> actHist = new();
             List<ActivityDetail> listdetail = new();
             foreach (DateTime item in dateAct)
             {
-                List<UserActivityHist> uah = _context.UserActivityHists.Where(a => a.UserId == id && a.ActivityTime.Date == item).OrderByDescending(o => o.ActivityTime).ToList();
+                List<UserActivityHist> uah = userActData.Where(a => a.ActivityTime.Date == item).OrderByDescending(o => o.ActivityTime).ToList();
                 ActivityDetail ad = new()
                 {
                     DateActivity = item,
@@ -139,6 +138,13 @@ namespace fekon_repository_dataservice.Services
                 };
                 listdetail.Add(ad);
             }
+
+            RefEmployee refEmployee = _context.RefEmployees.Where(r => r.UserId == user.Id).Single();
+            int usrRepoSubmisionCnt = _context.Repositories.Where(r => r.UsrCreate == id).Count();
+            string userRole = (from r in _context.AspNetRoles
+                               join ur in _context.AspNetUserRoles on r.Id equals ur.RoleId
+                               where ur.UserId == id
+                               select r.Name).FirstOrDefault();
 
             MergeAdminInfo mergeAdminInfo = new()
             {
