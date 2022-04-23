@@ -98,7 +98,8 @@ namespace fekon_repository_dataservice.Services
             }
             catch (Exception ex)
             {
-                _ = ex.Message;
+                result.FileDetailId = file.FileDetailId;
+                result.StatusFile = ex.Message;
             }
 
             return result;
@@ -145,6 +146,7 @@ namespace fekon_repository_dataservice.Services
             {
                 result.FileDetailId = id;
                 result.StatusFile = $"Directory ({file.FilePath}) Not Exists";
+                return result;
             }
 
             string[] files = Directory.GetFiles(file.FilePath);
@@ -156,6 +158,7 @@ namespace fekon_repository_dataservice.Services
                     {
                         result.FileDetailId = id;
                         result.StatusFile = $"{fileitem} Not Exists | Directory Location : {file.FilePath}";
+                        return result;
                     }
                 }
             }
@@ -163,9 +166,10 @@ namespace fekon_repository_dataservice.Services
             {
                 result.FileDetailId = id;
                 result.StatusFile = $"{file.FileName} Not Exists | Directory Location : {file.FilePath}";
+                return result;
             }
-            
-            return result.FileDetailId is null ? null : result;
+
+            return null;
         }
     }
 }

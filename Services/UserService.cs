@@ -69,10 +69,12 @@ namespace fekon_repository_dataservice.Services
                                               where d.DownloadDate.Date == item
                                               select new DownloadActivityDetail
                                               {
-                                                  Action = "Download Repository File",
+                                                  Action = d.DownloadStatus ? "Download Repository File Success" : "Download Repository File Failed",
                                                   FileName = f.FileName,
                                                   RepositoryTitle = r.Title,
-                                                  DateTimeAct = d.DownloadDate
+                                                  DateTimeAct = d.DownloadDate,
+                                                  DownloadStatus = d.DownloadStatus,
+                                                  ErrorMsg = string.IsNullOrEmpty(d.ErrorMsg) ? "Success" : d.ErrorMsg
                                               };
 
                 listData.Add(mud);
@@ -152,7 +154,7 @@ namespace fekon_repository_dataservice.Services
                 UserActivityDetail = listdetail,
                 RefEmployee = refEmployee,
                 TotalRepositorySubmit = usrRepoSubmisionCnt,
-                UserRole = userRole == ADMIN ? "Administrator" : userRole == SAUPERADM ? "Super Admin" : "Visitor"
+                UserRole = userRole
             };
 
             return mergeAdminInfo;

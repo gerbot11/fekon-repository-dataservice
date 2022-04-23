@@ -29,6 +29,34 @@ namespace fekon_repository_dataservice.Services
             return resAuthor.OrderBy(a => a.FirstName);
         }
 
+        public IQueryable<Author> GetAuthorForSelectionByName(string name)
+        {
+            IQueryable<Author> authors = _context.Authors.Where(a => a.IsAdvisor != "1");
+            if (string.IsNullOrEmpty(name))
+            {
+                authors = authors.Take(10);
+            }
+            else
+            {
+                authors =authors.Where(a => a.FirstName.Contains(name) || a.LastName.Contains(name));
+            }
+            return authors;
+        }
+
+        public IQueryable<Author> GetAdvisiorForSelectionByName(string name)
+        {
+            IQueryable<Author> authors = _context.Authors.Where(a => a.IsAdvisor == "1");
+            if (string.IsNullOrEmpty(name))
+            {
+                authors = authors.Take(10);
+            }
+            else
+            {
+                authors = authors.Where(a => a.FirstName.Contains(name) || a.LastName.Contains(name));
+            }
+            return authors;
+        }
+
         public async Task<IEnumerable<Author>> GetListAuthorForAddRepos()
         {
             return await _context.Authors.Where(a => a.IsAdvisor != "1").ToListAsync();

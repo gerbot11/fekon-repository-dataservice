@@ -30,14 +30,17 @@ namespace fekon_repository_dataservice.Services
         private readonly IAuthorService _authorService;
         private readonly IUserService _userService;
         private readonly IFileMonitoringService _fileMonitoringService;
+        private readonly IGeneralService _generalService;
 
-        public RepoService(REPOSITORY_DEVContext context, ILogger<RepoService> logger, IAuthorService authorService, IUserService userService, IFileMonitoringService fileMonitoringService) 
+        public RepoService(REPOSITORY_DEVContext context, ILogger<RepoService> logger, IAuthorService authorService, 
+            IUserService userService, IFileMonitoringService fileMonitoringService, IGeneralService generalService) 
             : base(context)
         {
             _logger = logger;
             _authorService = authorService;
             _userService = userService;
             _fileMonitoringService = fileMonitoringService;
+            _generalService = generalService;
         }
 
         #region FOR DASHBOARD
@@ -193,6 +196,7 @@ namespace fekon_repository_dataservice.Services
                  .Include(s => s.RepoStatistics)
                  .Include(pb => pb.PublisherNavigation)
                  .Include(f => f.FileDetails).ThenInclude(d => d.DownloadStatistics)
+                 .Include(f => f.FileDetails).ThenInclude(ft => ft.RefRepositoryFileType)
                  .Where(r => r.RepositoryId == id).FirstOrDefault();
 
             if (repo is null)
@@ -209,7 +213,7 @@ namespace fekon_repository_dataservice.Services
             return merge;
         }
 
-        public async Task<string> CreateNewRepoAsync(Repository repository, List<IFormFile> files, List<long> authorIds, List<string> langCode)
+        public async Task<string> CreateNewRepoAsync(Repository repository, List<RepoFile> files, List<long> authorIds)
         {
             string resultMsg = string.Empty;
             if (IsValidInput(repository, files, ref resultMsg, "ADD"))
@@ -235,14 +239,6 @@ namespace fekon_repository_dataservice.Services
                         repository.FileDetails.Add(file);
                     }
 
-                    string lang = string.Empty;
-                    for (int i = 0; i < langCode.Count; i++)
-                    {
-                        lang = $"{lang}{langCode[i]};";
-                    }
-                    lang = lang.Remove(lang.Length - 1, 1);
-                    repository.Language = lang;
-
                     await _context.SaveChangesAsync();
                     await _userService.AddUserActHist(repository.UsrCreate, $"New Submision with ID : {repository.RepositoryId}", "Submit New Repository");
                 }
@@ -260,62 +256,48 @@ namespace fekon_repository_dataservice.Services
             return resultMsg;
         }
 
-        public async Task<string> EditRepoAsync(Repository repository, List<IFormFile> files, List<long> authorIds, List<string> langCode, string userEdit)
+        public async Task<string> EditRepoAsync(Repository repository, List<RepoFile> files, List<long> authorIds, string userEdit)
         {
             string resultMsg = string.Empty;
             if (IsValidInput(repository, files, ref resultMsg))
             {
-                if (files.Count > 0)
+                files = files.Where(f => f.FormFile is not null).ToList();
+                if (files.Any())
                 {
-                    List<FileDetail> deletedFile = _context.FileDetails.Where(f => f.RepositoryId.Equals(repository.RepositoryId)).ToList();
-                    string dir = deletedFile.FirstOrDefault().FilePath;
-                    if (Directory.Exists(dir))
+                    foreach (RepoFile repofile in files)
                     {
-                        string[] filesToDelete = Directory.GetFiles(dir);
-                        if (filesToDelete.Length > 0)
-                        {
-                            DeleteFolder(filesToDelete, dir);
-                        }
-                    }
+                        FileDetail updateFileDetail = (from f in _context.FileDetails
+                                                       join ft in _context.RefRepositoryFileTypes on f.RefRepositoryFileTypeId equals ft.RefRepositoryFileTypeId
+                                                       where f.RepositoryId == repository.RepositoryId && ft.RepositoryFileTypeCode == repofile.FileTypeCode
+                                                       select f).FirstOrDefault();
 
-                    int downloadStatCnt = 0;
-                    foreach (FileDetail item in deletedFile)
-                    {
-                        List<FileMonitoringResult> listFileMonitoringRes = _fileMonitoringService.GetMonitoringResultByFileDetailId(item.FileDetailId);
-                        if (listFileMonitoringRes.Any())
+                        if (updateFileDetail is not null)
                         {
-                            for (int i = 0; i < listFileMonitoringRes.Count; i++)
+                            string dir = updateFileDetail.FilePath;
+                            if (Directory.Exists(dir))
                             {
-                                FileMonitoringHist fmh = _fileMonitoringService.GetFileMonitoringHistObjById((long)listFileMonitoringRes[i].FileMonitoringHistId);
-                                _context.FileMonitoringResults.Remove(listFileMonitoringRes[i]);
-                                fmh.TotalFileProblem -= 1;
-                                _context.Update(fmh);
+                                string[] filesToDelete = Directory.GetFiles(dir);
+                                if (filesToDelete.Length > 0)
+                                {
+                                    DeleteFolder(filesToDelete, dir);
+                                }
+                            }
+
+                            List<FileDetail> fileDetails = UploadFile(files, (long)repository.RefCollectionId, updateFileDetail);
+                            foreach (FileDetail fd in fileDetails)
+                            {
+                                _context.FileDetails.Update(fd);
                             }
                         }
-
-                        List<DownloadStatistic> ds = _context.DownloadStatistics.Where(f => f.FileDetailId == item.FileDetailId).ToList();
-                        if (ds.Any())
+                        else
                         {
-                            downloadStatCnt = ds.Count;
-                            for (int i = 0; i < ds.Count; i++)
+                            string existingpath = _context.FileDetails.Where(r => r.RepositoryId == repository.RepositoryId).Select(f => f.FilePath).FirstOrDefault();
+                            List<FileDetail> fileDetails = UploadFile(files, (long)repository.RefCollectionId, existingPath:existingpath);
+                            foreach (FileDetail fd in fileDetails)
                             {
-                                _context.DownloadStatistics.Remove(ds[i]);
+                                repository.FileDetails.Add(fd);
                             }
                         }
-                        _context.FileDetails.Remove(item);
-                    }
-
-                    RepoStatistic rs = _context.RepoStatistics.Where(r => r.RepositoryId == repository.RepositoryId).FirstOrDefault();
-                    if (rs is not null)
-                    {
-                        rs.DownloadCount -= downloadStatCnt;
-                        _context.Update(rs);
-                    }
-
-                    List<FileDetail> fileDetails = UploadFile(files, (long)repository.RefCollectionId);
-                    foreach (FileDetail fd in fileDetails)
-                    {
-                        repository.FileDetails.Add(fd);
                     }
                 }
 
@@ -338,14 +320,6 @@ namespace fekon_repository_dataservice.Services
                         repository.RepositoryDs.Add(newRd);
                     }
                 }
-
-                string lang = string.Empty;
-                for (int i = 0; i < langCode.Count; i++)
-                {
-                    lang = $"{lang}{langCode[i]};";
-                }
-                lang = lang.Remove(lang.Length - 1, 1);
-                repository.Language = lang;
 
                 _context.Update(repository);
                 await _context.SaveChangesAsync();
@@ -400,6 +374,61 @@ namespace fekon_repository_dataservice.Services
             await _context.SaveChangesAsync();
         }
 
+        public string DeleteRepositoryFile(long id)
+        {
+            string res = string.Empty;
+            FileDetail fileDetail = _context.FileDetails.Find(id);
+            if (CheckIsLastRepositoryFile((long)fileDetail.RepositoryId))
+            {
+                res = "Cannot Delete Last File of this Repository";
+            }
+            else
+            {
+                if (Directory.Exists(fileDetail.FilePath))
+                {
+                    string[] files = Directory.GetFiles(fileDetail.FilePath);
+                    if (files.Length > 0)
+                    {
+                        try
+                        {
+                            DeleteFolder(files, fileDetail.FilePath);
+                            List<FileMonitoringResult> listFileMonitoringRes = _fileMonitoringService.GetMonitoringResultByFileDetailId(fileDetail.FileDetailId);
+                            List<DownloadStatistic> downloadStatistics = _context.DownloadStatistics.Where(d => d.FileDetailId == fileDetail.FileDetailId).ToList();
+
+                            for (int i = 0; i < listFileMonitoringRes.Count; i++)
+                            {
+                                FileMonitoringHist fmh = _fileMonitoringService.GetFileMonitoringHistObjById((long)listFileMonitoringRes[i].FileMonitoringHistId);
+                                _context.FileMonitoringResults.Remove(listFileMonitoringRes[i]);
+                                fmh.TotalFileProblem -= 1;
+                                _context.Update(fmh);
+                            }
+
+                            for (int i = 0; i < downloadStatistics.Count; i++)
+                            {
+                                _context.DownloadStatistics.Remove(downloadStatistics[i]);
+                            }
+
+                            _context.FileDetails.Remove(fileDetail);
+                            _context.SaveChanges();
+                        }
+                        catch (Exception e)
+                        {
+                            res = e.Message;
+                        }
+                    }
+                    else
+                    {
+                        res = $"File {fileDetail.FileName} on folder {fileDetail.FilePath} is Not Exist";
+                    }
+                }
+                else
+                {
+                    res = $"Folder Path {fileDetail.FilePath} is Not Exist";
+                }
+            }
+            return res;
+        }
+
         public List<string> CheckFileStatus(IEnumerable<FileDetail> fileDetails)
         {
             List<string> resMsg = new();
@@ -417,6 +446,23 @@ namespace fekon_repository_dataservice.Services
                 }
             }
             return resMsg;
+        }
+
+        public IEnumerable<CurrentFileInfo> GetCurrentFileInfos(long repoid)
+        {
+            IEnumerable<CurrentFileInfo> repofileinfo = from r in _context.FileDetails
+                                                        join ft in _context.RefRepositoryFileTypes on r.RefRepositoryFileTypeId equals ft.RefRepositoryFileTypeId
+                                                        where r.RepositoryId == repoid
+                                                        select new CurrentFileInfo
+                                                        {
+                                                            FileDetailId = r.FileDetailId,
+                                                            FileName = r.FileName,
+                                                            FileSize = r.FileSize,
+                                                            OriginalName = r.OriginFileName,
+                                                            FileType = ft.RepositoryFileTypeName
+                                                        };
+
+            return repofileinfo;
         }
 
         #region REPOSITORY REPORT
@@ -591,67 +637,95 @@ namespace fekon_repository_dataservice.Services
             return result;
         }
 
-        public void InsertDownloadStat(long fileid, string userid)
+        public void InsertDownloadStat(long fileid, string userid, bool issuccess, string errMsg = "")
         {
-            DownloadStatistic downloadStatistic = new()
+            if (issuccess)
             {
-                FileDetailId = fileid,
-                UserId = userid,
-                DownloadDate = DateTime.Now
-            };
+                DownloadStatistic downloadStatistic = new()
+                {
+                    FileDetailId = fileid,
+                    UserId = userid,
+                    DownloadDate = DateTime.Now,
+                    DownloadStatus = issuccess
+                };
 
-            long repoId = _context.FileDetails.Where(f => f.FileDetailId == fileid).Select(r => (long)r.RepositoryId).FirstOrDefault();
-            RepoStatistic rs = _context.RepoStatistics.Where(r => r.RepositoryId == repoId).FirstOrDefault();
-            rs.DownloadCount += 1;
+                long repoId = _context.FileDetails.Where(f => f.FileDetailId == fileid).Select(r => (long)r.RepositoryId).FirstOrDefault();
+                RepoStatistic rs = _context.RepoStatistics.Where(r => r.RepositoryId == repoId).FirstOrDefault();
+                rs.DownloadCount += 1;
 
-            _context.Update(rs);
-            _context.Add(downloadStatistic);
+                _context.Update(rs);
+                _context.Add(downloadStatistic);
+            }
+            else
+            {
+                DownloadStatistic downloadStatistic = new()
+                {
+                    FileDetailId = fileid,
+                    UserId = userid,
+                    DownloadDate = DateTime.Now,
+                    DownloadStatus = issuccess,
+                    ErrorMsg = errMsg
+                };
+
+                _context.Add(downloadStatistic);
+            }
+
             _context.SaveChanges();
         }
         #endregion
 
         #region PRIVATE METHOD
-        private static bool IsValidInput(Repository rep, List<IFormFile> files, ref string msg, string saveMode = "")
+        private static bool IsValidInput(Repository rep, List<RepoFile> files, ref string msg, string saveMode = "")
         {
             bool res = true;
-            if (rep.Title == string.Empty || rep.Title == null)
+            if (string.IsNullOrWhiteSpace(rep.Title))
             {
                 msg = "Please input Title";
                 res = false;
+                return res;
             }
             else if (rep.PublishDate.ToString() == string.Empty)
             {
                 msg = "Please Input Publish Date";
                 res = false;
+                return res;
             }
             else if (rep.RefCollectionId == null)
             {
                 msg = "Please Select Collection Type";
                 res = false;
+                return res;
             }
-            else if (files.Count <= 0)
+
+            List<bool> statusAtached = new();
+            foreach (RepoFile item in files.Where(r => r.FormFile is not null))
             {
-                if (saveMode == "ADD")
+                if (item.FormFile is null)
+                    statusAtached.Add(false);
+
+                string ext = System.IO.Path.GetExtension(item.FormFile.FileName);
+                if (ext != ".pdf" && !string.IsNullOrEmpty(ext))
                 {
-                    msg = "Please Attach File";
+                    msg = $"Please Select File with .PDF Format for {item.FileTypeName} File";
                     res = false;
+                    return res;
                 }
             }
 
-            foreach (IFormFile item in files)
+            if (statusAtached.Any())
             {
-                string ext = System.IO.Path.GetExtension(item.FileName);
-                if (ext != ".pdf")
+                if (!statusAtached.Contains(true))
                 {
-                    msg = "Please Select File with .PDF Format";
+                    msg = "Please Attach Repository File";
                     res = false;
+                    return res;
                 }
             }
 
             return res;
         }
 
-        private List<FileDetail> UploadFile(List<IFormFile> files, long collectionId)
+        private List<FileDetail> UploadFile(List<RepoFile> files, long collectionId, FileDetail fileDetail = null, string existingPath = "")
         {
             string collCode = _context.RefCollections.Where(c => c.RefCollectionId.Equals(collectionId)).FirstOrDefault().CollCode;
             IConfigurationBuilder builder = new ConfigurationBuilder()
@@ -661,30 +735,42 @@ namespace fekon_repository_dataservice.Services
             IConfiguration config = builder.Build();
             string filePath = config["UploadPath"];
 
-            DirectoryInfo di = CreateDirectrory(filePath, collCode);
-            di.Create();
+            string finalPath = string.Empty;
+            if (string.IsNullOrEmpty(existingPath))
+            {
+                DirectoryInfo di = CreateDirectrory(filePath, collCode);
+                di.Create();
+                filePath = di.ToString();
+            }
+            else
+            {
+                finalPath = existingPath;
+            }
 
             List<FileDetail> fileDetails = new();
-            foreach (IFormFile item in files)
+            foreach (RepoFile item in files.Where(f => f.FormFile is not null))
             {
                 Guid g = Guid.NewGuid();
-                string originFilename = item.FileName;
-                string newFname = g.ToString() + System.IO.Path.GetExtension(item.FileName);
-                string fullPath = System.IO.Path.Combine(di.ToString(), newFname);
-                long fileSize = item.Length;
-                WatermarkPDF(item, fullPath);
+                string originFilename = item.FormFile.FileName;
+                string newFname = g.ToString() + System.IO.Path.GetExtension(item.FormFile.FileName);
+                string fullPath = System.IO.Path.Combine(finalPath, newFname);
+                long fileSize = item.FormFile.Length;
+                WatermarkPDF(item.FormFile, fullPath);
                 //using FileStream stream = new(fullPath, FileMode.Create);
-                FileDetail fd = new()
-                {
-                    FileName = newFname,
-                    FilePath = di.ToString(),
-                    FileExt = System.IO.Path.GetExtension(item.FileName),
-                    FileSize = fileSize.ToString(),
-                    FileType = "M",
-                    OriginFileName = originFilename
-                };
+                long fileTypeId = _generalService.GetRefRepositoryFileTypeByCode(item.FileTypeCode).RefRepositoryFileTypeId;
 
-                fileDetails.Add(fd);
+                if (fileDetail is null)
+                {
+                    fileDetail = new();
+                }
+
+                fileDetail.FileName = newFname;
+                fileDetail.FilePath = finalPath;
+                fileDetail.FileExt = System.IO.Path.GetExtension(item.FormFile.FileName);
+                fileDetail.FileSize = fileSize.ToString();
+                fileDetail.OriginFileName = originFilename;
+                fileDetail.RefRepositoryFileTypeId = fileTypeId;
+                fileDetails.Add(fileDetail);
             }
 
             return fileDetails;
@@ -778,9 +864,13 @@ namespace fekon_repository_dataservice.Services
                 }
             }
 
-            if (Directory.Exists(dir))
+            string[] fileAfterDel = Directory.GetFiles(dir);
+            if (fileAfterDel.Length <= 0)
             {
-                Directory.Delete(dir);
+                if (Directory.Exists(dir))
+                {
+                    Directory.Delete(dir);
+                }
             }
         }
 
@@ -824,6 +914,17 @@ namespace fekon_repository_dataservice.Services
             {
                 return false;
             }
+        }
+
+        private bool CheckIsLastRepositoryFile(long repoid)
+        {
+            bool islast = false;
+            int count = _context.FileDetails.Where(f => f.RepositoryId == repoid).Count();
+            if (count <= 1)
+            {
+                islast = true;
+            }
+            return islast;
         }
         #endregion
     }
