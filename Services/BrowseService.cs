@@ -17,31 +17,29 @@ namespace fekon_repository_dataservice.Services
 
         public async Task<IEnumerable<Repository>> BrowseReposByCategoryAsync(string category, long subcategory)
         {
-            IEnumerable<Repository> repositories = await _context.Repositories
+            IEnumerable<Repository> repositories = await _context.Repositories.OrderByDescending(r => r.RepositoryId)
                 .Include(r => r.RepositoryDs)
                     .ThenInclude(p => p.Author)
-                .Include(c => c.CollectionD)
+                .Include(c => c.CollectionD).Where(c => c.CollectionDid == subcategory)
                 .Include(s => s.RepoStatistics)
-                .Include(rc => rc.RefCollection)
+                .Include(rc => rc.RefCollection).Where(rc => rc.RefCollection.CollCode == category)
+                .OrderByDescending(o => o.RepositoryId)
                 .Take(20)
-                .OrderByDescending(r => r.UploadDate)
-                .Where(r => r.RefCollection.CollCode == category && r.CollectionDid == subcategory)
                 .AsNoTracking()
                 .ToListAsync();
 
             return repositories;
         }
 
-        public IQueryable<Repository> AuthorBrowseResult(long authorId, string category = "", long subcategory = 0)
+        public IQueryable<Repository> AuthorBrowseResult(long authorId, string query, string category = "", long subcategory = 0)
         {
-            Author author = _context.Authors.Find(authorId);
-            if (author is null)
-                return null;
-
             IQueryable<Repository> repositories = from r in _context.Repositories
                                                   join d in _context.RepositoryDs on r.RepositoryId equals d.RepositoryId
-                                                  where d.AuthorId == author.AuthorId
+                                                  where d.AuthorId == authorId
                                                   select r;
+
+            if (!string.IsNullOrEmpty(query) || !string.IsNullOrWhiteSpace(query))
+                repositories = repositories.Where(r => r.Title.Contains(query) || r.Description.Contains(query));
 
             if (!string.IsNullOrEmpty(category))
                 repositories = from r in repositories
@@ -54,9 +52,8 @@ namespace fekon_repository_dataservice.Services
 
             repositories = repositories.Include(r => r.RepositoryDs)
                 .ThenInclude(p => p.Author)
-            .Include(c => c.CollectionD)
             .Include(s => s.RepoStatistics)
-            .Include(rc => rc.RefCollection)
+            .OrderByDescending(o => o.RepositoryId)
             .AsNoTracking();
 
             return repositories;
@@ -72,7 +69,8 @@ namespace fekon_repository_dataservice.Services
             repositories = repositories
                 .Include(r => r.RepositoryDs)
                     .ThenInclude(p => p.Author)
-                .OrderBy(o => o.RepositoryId)
+                .Include(s => s.RepoStatistics)
+                .OrderByDescending(o => o.RepositoryId)
                 .AsNoTracking();
 
             return repositories;
@@ -91,8 +89,26 @@ namespace fekon_repository_dataservice.Services
             return repositories
                 .Include(d => d.RepositoryDs).ThenInclude(a => a.Author)
                 .Include(s => s.RepoStatistics)
-                .OrderBy(o => o.RepositoryId)
+                .OrderByDescending(o => o.RepositoryId)
                 .AsNoTracking();
+        }
+
+        public IQueryable<Repository> KeywordRepoResult(string keywordcode)
+        {
+            IQueryable<Repository> data = from r in _context.Repositories
+                                          join k in _context.RepositoryKeywords on r.RepositoryId equals k.RepostioryId
+                                          join rk in _context.RefKeywords on k.RefKeywordId equals rk.RefKeywordId
+                                          where rk.KeywordCode == keywordcode
+                                          orderby r.RepositoryId descending
+                                          select r;
+
+            data = data.Include(r => r.RepositoryDs)
+                         .ThenInclude(a => a.Author)
+                     .Include(s => s.RepoStatistics)
+                     .OrderByDescending(o => o.RepositoryId)
+                     .AsNoTracking();
+
+            return data;
         }
     }
 }

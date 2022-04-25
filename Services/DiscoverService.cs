@@ -18,31 +18,59 @@ namespace fekon_repository_dataservice.Services
 
         public IQueryable<Repository> GeneralSearch(string query, string category = "", long subcategory = 0)
         {
-            if (string.IsNullOrWhiteSpace(query) || string.IsNullOrEmpty(query))
-                return null;
-            else
+            IQueryable<Repository> rep = _context.Repositories.OrderByDescending(a => a.RepositoryId);
+
+            if (!string.IsNullOrEmpty(category))
             {
-                IQueryable<Repository> rep;
-                rep = _context.Repositories.Include(r => r.RepositoryDs)
-                                 .ThenInclude(a => a.Author)
-                             .Include(c => c.RefCollection)
-                             .Include(s => s.RepoStatistics)
-                             .Where(c => c.Title.Contains(query) || c.Description.Contains(query)
-                             || c.RepositoryDs.Select(a => a.Author.FirstName).Contains(query) || c.RepositoryDs.Select(a => a.Author.LastName).Contains(query))
-                             .OrderBy(r => r.PublishDate)
-                             .AsNoTracking();
-
-                if (!string.IsNullOrEmpty(category))
-                    rep = rep.Where(r => r.RefCollection.CollCode == category);
-
-                if (subcategory > 0)
-                    rep = rep.Where(r => r.CollectionDid == subcategory);
-
-                return rep;
+                rep = from r in rep
+                      join c in _context.RefCollections on r.RefCollectionId equals c.RefCollectionId
+                      where c.CollCode == category
+                      select r;
             }
+
+            if (subcategory > 0)
+                rep = rep.Where(r => r.CollectionDid == subcategory);
+
+
+            IQueryable<long> listrepo = (from r in rep
+                                         join repd in (from rd in _context.RepositoryDs
+                                                       join a in _context.Authors on rd.AuthorId equals a.AuthorId
+                                                       select new
+                                                       {
+                                                           rd.RepositoryId,
+                                                           a.LastName,
+                                                           a.FirstName
+                                                       }) on r.RepositoryId equals repd.RepositoryId
+                                         //      //join repk in (from rk in _context.RepositoryKeywords
+                                         //      //              join refk in _context.RefKeywords on rk.RefKeywordId equals refk.RefKeywordId
+                                         //      //              select new
+                                         //      //              {
+                                         //      //                  rk.RepostioryId,
+                                         //      //                  refk.KeywordName
+                                         //      //              }) on r.RepositoryId equals repk.RepostioryId
+                                         where r.Title.Contains(query) || r.Description.Contains(query) || repd.FirstName.Contains(query) || repd.LastName.Contains(query) //|| repk.KeywordName.Contains(query)
+                                         select r.RepositoryId).Distinct();
+
+
+            rep = rep.Include(r => r.RepositoryDs).ThenInclude(a => a.Author)
+                     .Include(s => s.RepoStatistics)
+                     .Include(c => c.CollectionD)
+                     .Include(r => r.RefCollection)
+                     .AsNoTracking();
+
+            rep = rep.Where(x => listrepo.Contains(x.RepositoryId));
+
+            //rep = rep.OrderByDescending(r => r.RepositoryId)
+            //    .Include(r => r.RepositoryDs).ThenInclude(a => a.Author)
+            //         .Include(s => s.RepoStatistics)
+            //         .Include(c => c.CollectionD)
+            //         .Include(r => r.RefCollection)
+            //         .AsNoTracking();
+
+            return rep;
         }
 
-        public IQueryable<MergeAuthorGrouping> DiscoverAuthor(string category, long subcategory, char? startChar)
+        public IQueryable<MergeAuthorGrouping> DiscoverAuthor(string query, string category, long subcategory, char? startChar)
         {
             IQueryable<Author> authors = _context.Authors;
 
@@ -59,6 +87,11 @@ namespace fekon_repository_dataservice.Services
             {
                 authors = authors
                     .Where(r => r.FirstName.Substring(0, 1) == startChar.ToString());
+            }
+
+            if (!string.IsNullOrEmpty(query))
+            {
+                authors = authors.Where(a => a.FirstName.Contains(query) || a.LastName.Contains(query));
             }
 
             IQueryable<MergeAuthorGrouping> finalRes = from a in authors
@@ -116,7 +149,28 @@ namespace fekon_repository_dataservice.Services
                                           orderby r.PublishDate ascending
                                           select r.PublishDate).Distinct();
 
-            return !dtRes.Any() ? null : dtRes;
+            return dtRes;
+        }
+
+        public IQueryable<KeywordsGrouping> DiscoverKeyword(string query)
+        {
+            IQueryable<RefKeyword> refKeywords = _context.RefKeywords;
+            if (!string.IsNullOrEmpty(query))
+                refKeywords = refKeywords.Where(r => r.KeywordName.Contains(query));
+
+            IQueryable<KeywordsGrouping> data = (from r in _context.Repositories
+                                                 join rk in _context.RepositoryKeywords on r.RepositoryId equals rk.RepostioryId
+                                                 join k in refKeywords on rk.RefKeywordId equals k.RefKeywordId
+                                                 group r by new { k.RefKeywordId, k.KeywordName, k.KeywordCode } into grp
+                                                 orderby grp.Count() descending
+                                                 select new KeywordsGrouping
+                                                 {
+                                                     KeywordName = grp.Key.KeywordName,
+                                                     KeywordCode = grp.Key.KeywordCode,
+                                                     Count = grp.Count()
+                                                 }).Take(5);
+
+            return data;
         }
     }
 }

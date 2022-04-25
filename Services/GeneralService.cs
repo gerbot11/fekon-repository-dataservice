@@ -7,12 +7,11 @@ using System.Threading.Tasks;
 
 namespace fekon_repository_dataservice.Services
 {
-    public class GeneralService : IGeneralService
+    public class GeneralService : BaseService, IGeneralService
     {
-        private readonly REPOSITORY_DEVContext _context;
-        public GeneralService(REPOSITORY_DEVContext context)
+        
+        public GeneralService(REPOSITORY_DEVContext context) : base(context)
         {
-            _context = context;
         }
 
         public async Task<IEnumerable<RefRepositoryFileType>> GetRefRepositoryFileTypes()
@@ -60,5 +59,59 @@ namespace fekon_repository_dataservice.Services
             
             return isdup;
         }
+
+        #region KEYWORDS
+        public IQueryable<RefKeyword> GetRefKeywords(string q)
+        {
+            IQueryable<RefKeyword> result = _context.RefKeywords;
+            if (string.IsNullOrEmpty(q))
+            {
+                result = result.Take(20);
+            }
+            else
+            {
+                result = result.Where(r => r.KeywordName.Contains(q));
+            }
+
+            return result;
+        }
+
+        public RefKeyword GetRefKeywordObjById(long id)
+        {
+            return _context.RefKeywords.Find(id);
+        }
+        public RefKeyword GetRefKeywordObjByCode(string keycode)
+        {
+            keycode = MakeKeywordCode(keycode);
+            return _context.RefKeywords.Where(k => k.KeywordCode == keycode).FirstOrDefault();
+        }
+
+        public async Task<IEnumerable<RefKeyword>> GetRepositoryKeywordByRepoId(long repoid)
+        {
+            IEnumerable<RefKeyword> repoKeywords = await (from r in _context.RepositoryKeywords
+                                                          join k in _context.RefKeywords on r.RefKeywordId equals k.RefKeywordId
+                                                          where r.RepostioryId == repoid
+                                                          select k).ToListAsync();
+            return repoKeywords;
+        }
+
+        public RefKeyword CreateNewKeyword(string keyword)
+        {
+            RefKeyword refKeyword = new()
+            {
+                KeywordName = keyword,
+                KeywordCode = MakeKeywordCode(keyword)
+            };
+
+            return refKeyword;
+        }
+
+        private static string MakeKeywordCode(string keyname)
+        {
+            string keycode = keyname.Replace(' ', '-');
+            keycode = keycode.ToLower();
+            return keycode;
+        }
+        #endregion
     }
 }

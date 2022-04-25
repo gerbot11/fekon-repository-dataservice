@@ -172,7 +172,7 @@ namespace fekon_repository_dataservice.Services
                 .ThenInclude(p => p.Author)
             .Include(p => p.RefCollection)
             .Include(c => c.CollectionD)
-            .OrderBy(x => x.RepositoryId)
+            .OrderByDescending(x => x.RepositoryId)
             .AsNoTracking();
         }
 
@@ -203,17 +203,20 @@ namespace fekon_repository_dataservice.Services
                 return null;
 
             string empUploader = _context.RefEmployees.Where(e => e.UserId == repo.UsrCreate).Select(e => e.EmployeeName).FirstOrDefault();
+            IEnumerable<string> repoKeyword = _context.RepositoryKeywords.Where(x => x.RepostioryId == id)
+                .Join(_context.RefKeywords, r => r.RefKeywordId, rk => rk.RefKeywordId, (r, rk) => rk.KeywordName);
 
             MergeRepoViewDashboard merge = new()
             {
                 Repository = repo,
-                UploadBy = empUploader
+                UploadBy = empUploader,
+                Keywords = repoKeyword
             };
 
             return merge;
         }
 
-        public async Task<string> CreateNewRepoAsync(Repository repository, List<RepoFile> files, List<long> authorIds)
+        public async Task<string> CreateNewRepoAsync(Repository repository, List<RepoFile> files, List<long> authorIds, List<string> keywords)
         {
             string resultMsg = string.Empty;
             if (IsValidInput(repository, files, ref resultMsg, "ADD"))
@@ -221,7 +224,6 @@ namespace fekon_repository_dataservice.Services
                 List<FileDetail> fileDetails = new();
                 try
                 {
-                    fileDetails = UploadFile(files, (long)repository.RefCollectionId);
                     repository.UploadDate = DateTime.Now;
                     _context.Add(repository);
 
@@ -234,6 +236,41 @@ namespace fekon_repository_dataservice.Services
                         repository.RepositoryDs.Add(rd);
                     }
 
+                    List<RefKeyword> listKeyword = new();
+                    foreach (string keyword in keywords)
+                    {
+                        if (!long.TryParse(keyword, out long num)) //untuk buat keyword baru kalo inputan tag baru dari halaman
+                        {
+                            RefKeyword newKeyword = _generalService.GetRefKeywordObjByCode(keyword);
+                            if (newKeyword is null)
+                            {
+                                newKeyword = _generalService.CreateNewKeyword(keyword);
+                                _context.Add(newKeyword);
+                            }
+                            listKeyword.Add(newKeyword);
+                        }
+                        else
+                        {
+                            RefKeyword refkeyword = _generalService.GetRefKeywordObjById(num);
+                            if (refkeyword is null)
+                            {
+                                refkeyword = _generalService.CreateNewKeyword(num.ToString());
+                                _context.Add(keyword);
+                            }
+                            listKeyword.Add(refkeyword);
+                        }
+                    }
+
+                    foreach (RefKeyword key in listKeyword)
+                    {
+                        RepositoryKeyword rk = new()
+                        {
+                            RefKeyword = key
+                        };
+                        repository.RepositoryKeywords.Add(rk);
+                    }
+
+                    fileDetails = UploadFile(files, (long)repository.RefCollectionId);
                     foreach (FileDetail file in fileDetails)
                     {
                         repository.FileDetails.Add(file);
@@ -248,15 +285,21 @@ namespace fekon_repository_dataservice.Services
                     _logger.LogError(resultMsg);
                     if (fileDetails.Any())
                     {
-                        string[] fileToDelete = Directory.GetFiles(fileDetails.FirstOrDefault().FilePath);
-                        DeleteFolder(fileToDelete, fileDetails.FirstOrDefault().FilePath);
+                        if (Directory.Exists(fileDetails.FirstOrDefault().FilePath))
+                        {
+                            string[] fileToDelete = Directory.GetFiles(fileDetails.FirstOrDefault().FilePath);
+                            if (fileToDelete.Length > 0)
+                            {
+                                DeleteFolder(fileToDelete, fileDetails.FirstOrDefault().FilePath);
+                            }
+                        }
                     }
                 }
             }
             return resultMsg;
         }
 
-        public async Task<string> EditRepoAsync(Repository repository, List<RepoFile> files, List<long> authorIds, string userEdit)
+        public async Task<string> EditRepoAsync(Repository repository, List<RepoFile> files, List<long> authorIds, string userEdit, List<string> keywords)
         {
             string resultMsg = string.Empty;
             if (IsValidInput(repository, files, ref resultMsg))
@@ -298,6 +341,61 @@ namespace fekon_repository_dataservice.Services
                                 repository.FileDetails.Add(fd);
                             }
                         }
+                    }
+                }
+
+                List<RepositoryKeyword> listRepoKeyword = (from r in _context.RepositoryKeywords
+                                                           where r.RepostioryId == repository.RepositoryId
+                                                           select r).ToList();
+
+                List<string> repoKeywordId = listRepoKeyword.Select(a => a.RefKeywordId.ToString()).ToList();
+                bool compareKeyword = false;
+
+                if (repoKeywordId.Count == keywords.Count)
+                    compareKeyword = repoKeywordId.Except(keywords).Any();
+                else
+                    compareKeyword = true;
+
+                if (compareKeyword || !listRepoKeyword.Any())
+                {
+                    //Remove yg lama
+                    foreach (RepositoryKeyword rk in listRepoKeyword)
+                    {
+                        _context.RepositoryKeywords.Remove(rk);
+                    }
+
+                    List<RefKeyword> listnewKeyword = new();
+                    foreach (string keyword in keywords)
+                    {
+                        if (!long.TryParse(keyword, out long num)) //untuk buat keyword baru kalo inputan tag baru dari halaman
+                        {
+                            RefKeyword newKeyword = _generalService.GetRefKeywordObjByCode(keyword);
+                            if (newKeyword is null)
+                            {
+                                newKeyword = _generalService.CreateNewKeyword(keyword);
+                                _context.Add(newKeyword);
+                            }
+                            listnewKeyword.Add(newKeyword);
+                        }
+                        else
+                        {
+                            RefKeyword refkeyword = _generalService.GetRefKeywordObjById(num);
+                            if (refkeyword is null)
+                            {
+                                refkeyword = _generalService.CreateNewKeyword(num.ToString());
+                                _context.Add(keyword);
+                            }
+                            listnewKeyword.Add(refkeyword);
+                        }
+                    }
+
+                    foreach (RefKeyword key in listnewKeyword)
+                    {
+                        RepositoryKeyword rk = new()
+                        {
+                            RefKeyword = key
+                        };
+                        repository.RepositoryKeywords.Add(rk);
                     }
                 }
 
@@ -357,7 +455,10 @@ namespace fekon_repository_dataservice.Services
                     {
                         FileMonitoringHist fmh = _fileMonitoringService.GetFileMonitoringHistObjById((long)listFileMonitoringRes[i].FileMonitoringHistId);
                         _context.FileMonitoringResults.Remove(listFileMonitoringRes[i]);
-                        fmh.TotalFileProblem -= 1;
+                        if (fmh.TotalFileProblem > 0)
+                        {
+                            fmh.TotalFileProblem -= 1;
+                        }
                         _context.Update(fmh);
                     }
                 }
@@ -399,7 +500,10 @@ namespace fekon_repository_dataservice.Services
                             {
                                 FileMonitoringHist fmh = _fileMonitoringService.GetFileMonitoringHistObjById((long)listFileMonitoringRes[i].FileMonitoringHistId);
                                 _context.FileMonitoringResults.Remove(listFileMonitoringRes[i]);
-                                fmh.TotalFileProblem -= 1;
+                                if (fmh.TotalFileProblem > 0)
+                                {
+                                    fmh.TotalFileProblem -= 1;
+                                }
                                 _context.Update(fmh);
                             }
 
@@ -429,40 +533,30 @@ namespace fekon_repository_dataservice.Services
             return res;
         }
 
-        public List<string> CheckFileStatus(IEnumerable<FileDetail> fileDetails)
-        {
-            List<string> resMsg = new();
-            foreach (FileDetail item in fileDetails)
-            {
-                string path = item.FilePath + "\\" + item.FileName;
-                bool exist = File.Exists(path);
-                if (!exist)
-                {
-                    resMsg.Add($"File Is Not Exist, Please Reupload File or Check this Directory : {item.FilePath}");
-                }
-                else
-                {
-                    resMsg.Add("File Status Ok");
-                }
-            }
-            return resMsg;
-        }
-
         public IEnumerable<CurrentFileInfo> GetCurrentFileInfos(long repoid)
         {
-            IEnumerable<CurrentFileInfo> repofileinfo = from r in _context.FileDetails
-                                                        join ft in _context.RefRepositoryFileTypes on r.RefRepositoryFileTypeId equals ft.RefRepositoryFileTypeId
-                                                        where r.RepositoryId == repoid
-                                                        select new CurrentFileInfo
-                                                        {
-                                                            FileDetailId = r.FileDetailId,
-                                                            FileName = r.FileName,
-                                                            FileSize = r.FileSize,
-                                                            OriginalName = r.OriginFileName,
-                                                            FileType = ft.RepositoryFileTypeName
-                                                        };
+            List<CurrentFileInfo> repofileinfo = (from r in _context.FileDetails
+                                                  join ft in _context.RefRepositoryFileTypes on r.RefRepositoryFileTypeId equals ft.RefRepositoryFileTypeId
+                                                  where r.RepositoryId == repoid
+                                                  select new CurrentFileInfo
+                                                  {
+                                                      FileDetailId = r.FileDetailId,
+                                                      FileName = r.FileName,
+                                                      FileSize = r.FileSize,
+                                                      OriginalName = r.OriginFileName,
+                                                      FileType = ft.RepositoryFileTypeName,
+                                                      Path = r.FilePath
+                                                  }).ToList();
 
+            foreach (CurrentFileInfo item in repofileinfo)
+                item.FileStatus = CheckFileStatus(item.Path);
+            
             return repofileinfo;
+        }
+
+        public bool CheckRepoHasFilePerType(long repoid, long typeid)
+        {
+            return _context.FileDetails.Where(f => f.RepositoryId == repoid && f.RefRepositoryFileTypeId == typeid).Any();
         }
 
         #region REPOSITORY REPORT
@@ -508,7 +602,7 @@ namespace fekon_repository_dataservice.Services
         {
             MergeRepoIndex repoContx = new()
             {
-                repositories = await _context.Repositories
+                repositories = await _context.Repositories.OrderByDescending(r => r.UploadDate)
                 .Include(r => r.RepositoryDs)
                     .ThenInclude(p => p.Author)
                 .Include(c => c.CollectionD)
@@ -516,7 +610,6 @@ namespace fekon_repository_dataservice.Services
                 .Include(rc => rc.RefCollection)
                 .Include(f => f.FileDetails)
                 .Take(20)
-                .OrderByDescending(r => r.UploadDate)
                 .AsNoTracking()
                 .ToListAsync()
             };
@@ -531,14 +624,16 @@ namespace fekon_repository_dataservice.Services
                 return null;
 
             IEnumerable<Author> listAuthors = _authorService.GetListAuthorByReposId(id);
-            IEnumerable<FileDetail> fileDetails = _context.FileDetails.Where(f => f.RepositoryId == id);
+            IEnumerable<FileDetail> fileDetails = _context.FileDetails.Where(f => f.RepositoryId == id).Include(f => f.RefRepositoryFileType);
+            IEnumerable<RefKeyword> refKeywords = await _generalService.GetRepositoryKeywordByRepoId(id);
             MergeRepoView repoView = new()
             {
                 repository = rep,
                 authors = listAuthors,
                 fileDetails = fileDetails,
                 RefCollName = _context.RefCollections.Where(c => c.RefCollectionId == rep.RefCollectionId).FirstOrDefault().CollName,
-                CollDName = _context.CollectionDs.Where(c => c.CollectionDid == rep.CollectionDid).FirstOrDefault().CollectionDname
+                CollDName = _context.CollectionDs.Where(c => c.CollectionDid == rep.CollectionDid).FirstOrDefault().CollectionDname,
+                Keywords = refKeywords.Select(r => r.KeywordName)
             };
             InsertRepoStatistic(rep.RepositoryId);
 
@@ -632,6 +727,7 @@ namespace fekon_repository_dataservice.Services
 
             result = result.Include(d => d.RepositoryDs).ThenInclude(a => a.Author)
                 .Include(s => s.RepoStatistics)
+                .OrderByDescending(r => r.RepositoryId)
                 .AsNoTracking();
 
             return result;
@@ -672,9 +768,44 @@ namespace fekon_repository_dataservice.Services
 
             _context.SaveChanges();
         }
+
+        public IEnumerable<KeywordsGrouping> GetGroupingKeywordForSideMenu()
+        {
+            IQueryable<KeywordsGrouping> data = (from r in _context.Repositories
+                                                 join rk in _context.RepositoryKeywords on r.RepositoryId equals rk.RepostioryId
+                                                 join k in _context.RefKeywords on rk.RefKeywordId equals k.RefKeywordId
+                                                 group r by new { k.RefKeywordId, k.KeywordName, k.KeywordCode } into grp
+                                                 orderby grp.Count() descending
+                                                 select new KeywordsGrouping
+                                                 {
+                                                     KeywordName = grp.Key.KeywordName,
+                                                     KeywordCode = grp.Key.KeywordCode,
+                                                     Count = grp.Count()
+                                                 }).Take(5);
+
+            return data;
+        }
         #endregion
 
         #region PRIVATE METHOD
+        private string CheckFileStatus(string path)
+        {
+            string resMsg = "Ok";
+            if (Directory.Exists(path))
+            {
+                string[] filesToDelete = Directory.GetFiles(path);
+                if (filesToDelete.Length < 1)
+                {
+                    resMsg = "No File Exist";
+                }
+            }
+            else
+            {
+                resMsg = "Folder Is Not Exist";
+            }
+            return resMsg;
+        }
+
         private static bool IsValidInput(Repository rep, List<RepoFile> files, ref string msg, string saveMode = "")
         {
             bool res = true;
@@ -740,7 +871,7 @@ namespace fekon_repository_dataservice.Services
             {
                 DirectoryInfo di = CreateDirectrory(filePath, collCode);
                 di.Create();
-                filePath = di.ToString();
+                finalPath = di.ToString();
             }
             else
             {
