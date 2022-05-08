@@ -4,7 +4,6 @@ using Microsoft.EntityFrameworkCore;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
 
 namespace fekon_repository_dataservice.Services
@@ -59,12 +58,17 @@ namespace fekon_repository_dataservice.Services
             return repositories;
         }
 
-        public IQueryable<Repository> PublishDtBrowseResult(DateTime publishDt, string cat, long subcat)
+        public IQueryable<Repository> PublishDtBrowseResult(DateTime publishDt, string query, string cat, long subcat)
         {
             IQueryable<Repository> repositories = from r in _context.Repositories
                                                   join rc in _context.RefCollections on r.RefCollectionId equals rc.RefCollectionId
                                                   where r.PublishDate == publishDt && rc.CollCode == cat && r.CollectionDid == subcat
                                                   select r;
+
+            if (!string.IsNullOrEmpty(query))
+            {
+                repositories = FilterRepoIdBySingleQueryParam(query, repositories);
+            }
 
             repositories = repositories
                 .Include(r => r.RepositoryDs)
@@ -76,7 +80,7 @@ namespace fekon_repository_dataservice.Services
             return repositories;
         }
 
-        public IQueryable<Repository> YearRangeBrowseResult(string yrange)
+        public IQueryable<Repository> YearRangeBrowseResult(string query, string yrange)
         {
             int ystart =  Convert.ToInt32(yrange[..4]);
             int yend = Convert.ToInt32(yrange.Substring(yrange.Length - 5, 5));
@@ -85,6 +89,10 @@ namespace fekon_repository_dataservice.Services
             DateTime dtEnd = new(yend, 12, 31);
 
             IQueryable<Repository> repositories = _context.Repositories.Where(r => r.PublishDate >= dtStart && r.PublishDate <= dtEnd);
+            if (!string.IsNullOrEmpty(query))
+            {
+                repositories = FilterRepoIdBySingleQueryParam(query, repositories);
+            }
 
             return repositories
                 .Include(d => d.RepositoryDs).ThenInclude(a => a.Author)
@@ -93,7 +101,7 @@ namespace fekon_repository_dataservice.Services
                 .AsNoTracking();
         }
 
-        public IQueryable<Repository> KeywordRepoResult(string keywordcode)
+        public IQueryable<Repository> KeywordRepoResult(string keywordcode, string query)
         {
             IQueryable<Repository> data = from r in _context.Repositories
                                           join k in _context.RepositoryKeywords on r.RepositoryId equals k.RepostioryId
@@ -101,6 +109,11 @@ namespace fekon_repository_dataservice.Services
                                           where rk.KeywordCode == keywordcode
                                           orderby r.RepositoryId descending
                                           select r;
+
+            if (!string.IsNullOrEmpty(query))
+            {
+                data = FilterRepoIdBySingleQueryParam(query, data);
+            }
 
             data = data.Include(r => r.RepositoryDs)
                          .ThenInclude(a => a.Author)

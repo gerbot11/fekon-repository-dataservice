@@ -72,14 +72,18 @@ namespace fekon_repository_dataservice.Services
             return await _context.Authors.FindAsync(id);
         }
 
-        public async Task<IEnumerable<MergeAuthorGrouping>> GetListAuthorForSideMenu()
+        public async Task<IEnumerable<MergeAuthorGrouping>> GetListAuthorForSideMenu(string isAdvisior)
         {
-            IEnumerable<MergeAuthorGrouping> authorRepo = await (from a in _context.Authors
-                                                                 join rd in _context.RepositoryDs on a.AuthorId equals rd.AuthorId
-                                                                 join r in _context.Repositories on rd.RepositoryId equals r.RepositoryId
-                                                                 where a.IsAdvisor == "0"
-                                                                 orderby r.UploadDate descending
+            IQueryable<Author> dataauthor = from a in _context.Authors
+                                            join rd in _context.RepositoryDs on a.AuthorId equals rd.AuthorId
+                                            join r in _context.Repositories on rd.RepositoryId equals r.RepositoryId
+                                            where a.IsAdvisor == isAdvisior
+                                            orderby r.RepositoryId descending
+                                            select a;
+
+            IEnumerable<MergeAuthorGrouping> authorRepo = await (from a in dataauthor
                                                                  group a by new { a.AuthorId, a.FirstName, a.LastName } into grpRes
+                                                                 orderby grpRes.Key.AuthorId descending
                                                                  select new MergeAuthorGrouping
                                                                  {
                                                                      Id = grpRes.Key.AuthorId,

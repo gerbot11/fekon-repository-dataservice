@@ -9,9 +9,7 @@ using iText.Kernel.Pdf.Annot;
 using iText.Kernel.Pdf.Canvas;
 using iText.Kernel.Pdf.Extgstate;
 using iText.Kernel.Pdf.Xobject;
-using iText.Layout;
 using Microsoft.AspNetCore.Http;
-//using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -32,8 +30,8 @@ namespace fekon_repository_dataservice.Services
         private readonly IFileMonitoringService _fileMonitoringService;
         private readonly IGeneralService _generalService;
 
-        public RepoService(REPOSITORY_DEVContext context, ILogger<RepoService> logger, IAuthorService authorService, 
-            IUserService userService, IFileMonitoringService fileMonitoringService, IGeneralService generalService) 
+        public RepoService(REPOSITORY_DEVContext context, ILogger<RepoService> logger, IAuthorService authorService,
+            IUserService userService, IFileMonitoringService fileMonitoringService, IGeneralService generalService)
             : base(context)
         {
             _logger = logger;
@@ -50,19 +48,17 @@ namespace fekon_repository_dataservice.Services
 
             if (!string.IsNullOrEmpty(query) || !string.IsNullOrWhiteSpace(query))
             {
-                repositories = from r in repositories
-                               join d in _context.RepositoryDs on r.RepositoryId equals d.RepositoryId
-                               join a in _context.Authors on d.AuthorId equals a.AuthorId
-                               where r.Title.Contains(query) || a.FirstName.Contains(query) || a.LastName.Contains(query)
-                               select r;
+                repositories = FilterRepoIdBySingleQueryParam(query, repositories);
             }
 
-            return repositories.Include(r => r.RepositoryDs)
+            repositories = repositories.Include(r => r.RepositoryDs)
                 .ThenInclude(p => p.Author)
             .Include(p => p.RefCollection)
             .Include(c => c.CollectionD)
             .OrderBy(x => x.RepositoryId)
             .AsNoTracking();
+
+            return repositories;
         }
 
         public IQueryable<MergeRepositoryPaging> GetRepositoryPagings(string title, string author, int? year, long? type, long? colld)
@@ -124,7 +120,7 @@ namespace fekon_repository_dataservice.Services
         public IQueryable<Repository> MoreSearchRepositoryDashboard(string title, string author, int? yearFrom, int? yearTo, long? type, long? colld)
         {
             IQueryable<Repository> result = _context.Repositories;
-            
+
             if (!string.IsNullOrWhiteSpace(title))
             {
                 result = result.Where(t => t.Title.Contains(title));
@@ -134,7 +130,7 @@ namespace fekon_repository_dataservice.Services
             {
                 SetParamDateBetweenYear((int)yearFrom, yearTo ?? 0, out DateTime dtStart, out DateTime dtTo);
                 if (yearTo is not null)
-                {   
+                {
                     result = result.Where(y => y.PublishDate >= dtStart && y.PublishDate <= dtTo);
                 }
                 else
@@ -236,39 +232,7 @@ namespace fekon_repository_dataservice.Services
                         repository.RepositoryDs.Add(rd);
                     }
 
-                    List<RefKeyword> listKeyword = new();
-                    foreach (string keyword in keywords)
-                    {
-                        if (!long.TryParse(keyword, out long num)) //untuk buat keyword baru kalo inputan tag baru dari halaman
-                        {
-                            RefKeyword newKeyword = _generalService.GetRefKeywordObjByCode(keyword);
-                            if (newKeyword is null)
-                            {
-                                newKeyword = _generalService.CreateNewKeyword(keyword);
-                                _context.Add(newKeyword);
-                            }
-                            listKeyword.Add(newKeyword);
-                        }
-                        else
-                        {
-                            RefKeyword refkeyword = _generalService.GetRefKeywordObjById(num);
-                            if (refkeyword is null)
-                            {
-                                refkeyword = _generalService.CreateNewKeyword(num.ToString());
-                                _context.Add(keyword);
-                            }
-                            listKeyword.Add(refkeyword);
-                        }
-                    }
-
-                    foreach (RefKeyword key in listKeyword)
-                    {
-                        RepositoryKeyword rk = new()
-                        {
-                            RefKeyword = key
-                        };
-                        repository.RepositoryKeywords.Add(rk);
-                    }
+                    repository.RepositoryKeywords = CreateKeywordForRepo(keywords);
 
                     fileDetails = UploadFile(files, (long)repository.RefCollectionId);
                     foreach (FileDetail file in fileDetails)
@@ -319,14 +283,14 @@ namespace fekon_repository_dataservice.Services
                             string dir = updateFileDetail.FilePath;
                             if (Directory.Exists(dir))
                             {
-                                string[] filesToDelete = Directory.GetFiles(dir);
+                                string[] filesToDelete = Directory.GetFiles(dir, updateFileDetail.FileName);
                                 if (filesToDelete.Length > 0)
                                 {
-                                    DeleteFolder(filesToDelete, dir);
+                                    DeleteFolder(filesToDelete, dir, true);
                                 }
                             }
 
-                            List<FileDetail> fileDetails = UploadFile(files, (long)repository.RefCollectionId, updateFileDetail);
+                            List<FileDetail> fileDetails = UploadFile(files, (long)repository.RefCollectionId, updateFileDetail, existingPath: dir);
                             foreach (FileDetail fd in fileDetails)
                             {
                                 _context.FileDetails.Update(fd);
@@ -335,7 +299,7 @@ namespace fekon_repository_dataservice.Services
                         else
                         {
                             string existingpath = _context.FileDetails.Where(r => r.RepositoryId == repository.RepositoryId).Select(f => f.FilePath).FirstOrDefault();
-                            List<FileDetail> fileDetails = UploadFile(files, (long)repository.RefCollectionId, existingPath:existingpath);
+                            List<FileDetail> fileDetails = UploadFile(files, (long)repository.RefCollectionId, existingPath: existingpath);
                             foreach (FileDetail fd in fileDetails)
                             {
                                 repository.FileDetails.Add(fd);
@@ -358,45 +322,7 @@ namespace fekon_repository_dataservice.Services
 
                 if (compareKeyword || !listRepoKeyword.Any())
                 {
-                    //Remove yg lama
-                    foreach (RepositoryKeyword rk in listRepoKeyword)
-                    {
-                        _context.RepositoryKeywords.Remove(rk);
-                    }
-
-                    List<RefKeyword> listnewKeyword = new();
-                    foreach (string keyword in keywords)
-                    {
-                        if (!long.TryParse(keyword, out long num)) //untuk buat keyword baru kalo inputan tag baru dari halaman
-                        {
-                            RefKeyword newKeyword = _generalService.GetRefKeywordObjByCode(keyword);
-                            if (newKeyword is null)
-                            {
-                                newKeyword = _generalService.CreateNewKeyword(keyword);
-                                _context.Add(newKeyword);
-                            }
-                            listnewKeyword.Add(newKeyword);
-                        }
-                        else
-                        {
-                            RefKeyword refkeyword = _generalService.GetRefKeywordObjById(num);
-                            if (refkeyword is null)
-                            {
-                                refkeyword = _generalService.CreateNewKeyword(num.ToString());
-                                _context.Add(keyword);
-                            }
-                            listnewKeyword.Add(refkeyword);
-                        }
-                    }
-
-                    foreach (RefKeyword key in listnewKeyword)
-                    {
-                        RepositoryKeyword rk = new()
-                        {
-                            RefKeyword = key
-                        };
-                        repository.RepositoryKeywords.Add(rk);
-                    }
+                    repository.RepositoryKeywords = CreateKeywordForRepo(keywords, listRepoKeyword);
                 }
 
                 List<RepositoryD> repositoryDs = _context.RepositoryDs.Where(f => f.RepositoryId.Equals(repository.RepositoryId)).ToList();
@@ -487,12 +413,12 @@ namespace fekon_repository_dataservice.Services
             {
                 if (Directory.Exists(fileDetail.FilePath))
                 {
-                    string[] files = Directory.GetFiles(fileDetail.FilePath);
+                    string[] files = Directory.GetFiles(fileDetail.FilePath, fileDetail.FileName);
                     if (files.Length > 0)
                     {
                         try
                         {
-                            DeleteFolder(files, fileDetail.FilePath);
+                            DeleteFolder(files, fileDetail.FilePath, true);
                             List<FileMonitoringResult> listFileMonitoringRes = _fileMonitoringService.GetMonitoringResultByFileDetailId(fileDetail.FileDetailId);
                             List<DownloadStatistic> downloadStatistics = _context.DownloadStatistics.Where(d => d.FileDetailId == fileDetail.FileDetailId).ToList();
 
@@ -550,7 +476,7 @@ namespace fekon_repository_dataservice.Services
 
             foreach (CurrentFileInfo item in repofileinfo)
                 item.FileStatus = CheckFileStatus(item.Path);
-            
+
             return repofileinfo;
         }
 
@@ -571,7 +497,7 @@ namespace fekon_repository_dataservice.Services
             string conString = config.GetConnectionString("RepoAssasins");
 
             DataTable dt = null;
-            
+
             //using (SqlConnection con = new(conString))
             //{
             //    con.Open();
@@ -598,23 +524,16 @@ namespace fekon_repository_dataservice.Services
         #endregion
 
         #region FOR MAIN
-        public async Task<MergeRepoIndex> GetRepositoriesForIndexHomePageAsync()
+        public IQueryable<Repository> GetRepositoriesForIndexHomePageAsync()
         {
-            MergeRepoIndex repoContx = new()
-            {
-                repositories = await _context.Repositories.OrderByDescending(r => r.UploadDate)
-                .Include(r => r.RepositoryDs)
-                    .ThenInclude(p => p.Author)
-                .Include(c => c.CollectionD)
-                .Include(s => s.RepoStatistics)
-                .Include(rc => rc.RefCollection)
-                .Include(f => f.FileDetails)
-                .Take(20)
-                .AsNoTracking()
-                .ToListAsync()
-            };
+            IQueryable<Repository> repositories = _context.Repositories.OrderByDescending(r => r.UploadDate)
+             .Include(r => r.RepositoryDs)
+                 .ThenInclude(p => p.Author)
+             .Include(s => s.RepoStatistics)
+             .Take(20)
+             .AsNoTracking();
 
-            return repoContx;
+            return repositories;
         }
 
         public async Task<MergeRepoView> GetRepoByIdAsync(long id)
@@ -663,7 +582,7 @@ namespace fekon_repository_dataservice.Services
                                          where r.PublishDate >= dtStart && r.PublishDate <= dtEnd
                                          select r.PublishDate).ToList();
 
-                var data = (from r in listDt 
+                var data = (from r in listDt
                             group r by r.Year into grp
                             select new
                             {
@@ -735,9 +654,10 @@ namespace fekon_repository_dataservice.Services
 
         public void InsertDownloadStat(long fileid, string userid, bool issuccess, string errMsg = "")
         {
+            DownloadStatistic downloadStatistic;
             if (issuccess)
             {
-                DownloadStatistic downloadStatistic = new()
+                downloadStatistic = new()
                 {
                     FileDetailId = fileid,
                     UserId = userid,
@@ -754,7 +674,7 @@ namespace fekon_repository_dataservice.Services
             }
             else
             {
-                DownloadStatistic downloadStatistic = new()
+                downloadStatistic = new()
                 {
                     FileDetailId = fileid,
                     UserId = userid,
@@ -945,21 +865,21 @@ namespace fekon_repository_dataservice.Services
 
                 //Apply linear algebra rotation math
                 //Create identity matrix
-                AffineTransform transform = new AffineTransform();//No-args constructor creates the identity transform
+                AffineTransform transform = new();//No-args constructor creates the identity transform
                                                                   //Apply translation
                 transform.Translate(xTranslation, yTranslation);
                 //Apply rotation
                 transform.Rotate(rotationInRads);
 
-                PdfFixedPrint fixedPrint = new PdfFixedPrint();
+                PdfFixedPrint fixedPrint = new();
                 watermark.SetFixedPrint(fixedPrint);
                 //Create appearance
-                Rectangle formRectangle = new Rectangle(formXOffset, formYOffset, formWidth, formHeight);
+                Rectangle formRectangle = new(formXOffset, formYOffset, formWidth, formHeight);
 
                 //Observation: font XObject will be resized to fit inside the watermark rectangle
-                PdfFormXObject form = new PdfFormXObject(formRectangle);
+                PdfFormXObject form = new(formRectangle);
                 PdfExtGState gs1 = new PdfExtGState().SetFillOpacity(0.2f);
-                PdfCanvas canvas = new PdfCanvas(form, pdfDoc);
+                PdfCanvas canvas = new(form, pdfDoc);
 
                 float[] transformValues = new float[6];
                 transform.GetMatrix(transformValues);
@@ -985,7 +905,7 @@ namespace fekon_repository_dataservice.Services
             //return pdfDoc;
         }
 
-        private static void DeleteFolder(string[] files, string dir)
+        private static void DeleteFolder(string[] files, string dir, bool fileOnly = false)
         {
             foreach (string item in files)
             {
@@ -995,12 +915,15 @@ namespace fekon_repository_dataservice.Services
                 }
             }
 
-            string[] fileAfterDel = Directory.GetFiles(dir);
-            if (fileAfterDel.Length <= 0)
+            if (!fileOnly)
             {
-                if (Directory.Exists(dir))
+                string[] fileAfterDel = Directory.GetFiles(dir);
+                if (fileAfterDel.Length <= 0)
                 {
-                    Directory.Delete(dir);
+                    if (Directory.Exists(dir))
+                    {
+                        Directory.Delete(dir);
+                    }
                 }
             }
         }
@@ -1012,17 +935,17 @@ namespace fekon_repository_dataservice.Services
             if (stat is not null)
             {
                 stat.LinkHitCount++;
-                _context.Update(stat);  
+                _context.Update(stat);
             }
             else
             {
-                RepoStatistic newStats = new()
+                stat = new()
                 {
                     RepositoryId = repoid,
                     DownloadCount = 0,
                     LinkHitCount = 1
                 };
-                _context.Add(newStats);
+                _context.Add(stat);
             }
             _context.SaveChanges();
         }
@@ -1056,6 +979,58 @@ namespace fekon_repository_dataservice.Services
                 islast = true;
             }
             return islast;
+        }
+
+        private List<RepositoryKeyword> CreateKeywordForRepo(List<string> keywords, List<RepositoryKeyword> repositoryKeywords = null)
+        {
+            if (repositoryKeywords is null)
+            {
+                repositoryKeywords = new();
+            }
+            else
+            {
+                //Remove yg lama
+                foreach (RepositoryKeyword rk in repositoryKeywords)
+                {
+                    _context.RepositoryKeywords.Remove(rk);
+                }
+            }
+
+            List<RefKeyword> listKeyword = new();
+            foreach (string keyword in keywords)
+            {
+                if (!long.TryParse(keyword, out long num)) //untuk buat keyword baru kalo inputan tag baru dari halaman
+                {
+                    RefKeyword newKeyword = _generalService.GetRefKeywordObjByCode(keyword);
+                    if (newKeyword is null)
+                    {
+                        newKeyword = _generalService.CreateNewKeyword(keyword);
+                        _context.Add(newKeyword);
+                    }
+                    listKeyword.Add(newKeyword);
+                }
+                else
+                {
+                    RefKeyword refkeyword = _generalService.GetRefKeywordObjById(num);
+                    if (refkeyword is null)
+                    {
+                        refkeyword = _generalService.CreateNewKeyword(num.ToString());
+                        _context.Add(keyword);
+                    }
+                    listKeyword.Add(refkeyword);
+                }
+            }
+
+            foreach (RefKeyword key in listKeyword)
+            {
+                RepositoryKeyword rk = new()
+                {
+                    RefKeyword = key
+                };
+                repositoryKeywords.Add(rk);
+            }
+
+            return repositoryKeywords;
         }
         #endregion
     }

@@ -2,13 +2,11 @@
 using fekon_repository_datamodel.DashboardModels;
 using fekon_repository_datamodel.Models;
 using Microsoft.EntityFrameworkCore;
-using MySql.Data.MySqlClient;
 using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Globalization;
 using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
 
 namespace fekon_repository_dataservice.Services

@@ -1,10 +1,7 @@
 ﻿using fekon_repository_api;
 using fekon_repository_datamodel.Models;
 using Microsoft.EntityFrameworkCore;
-using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
 
 namespace fekon_repository_dataservice.Services
@@ -19,6 +16,18 @@ namespace fekon_repository_dataservice.Services
         public async Task<IEnumerable<RefLanguage>> GetRefLanguagesAsyncForAddRepos()
         {
             return await _context.RefLanguages.ToListAsync();
-        } 
+        }
+
+        public string MergeRepositoryLang(List<string> langCode)
+        {
+            string lang = string.Empty;
+            for (int i = 0; i < langCode.Count; i++)
+            {
+                lang = $"{lang}{langCode[i]};";
+            }
+            lang = lang.Remove(lang.Length - 1, 1);
+
+            return lang;
+        }
     }
 }

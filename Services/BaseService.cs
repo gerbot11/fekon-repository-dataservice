@@ -3,6 +3,7 @@ using MySql.Data.MySqlClient;
 using System;
 using System.Data;
 using System.IO;
+using System.Linq;
 
 namespace fekon_repository_dataservice.Services
 {
@@ -62,6 +63,17 @@ namespace fekon_repository_dataservice.Services
                 dtTo = new(DateTime.Now.Year, 12, 31);
             else 
                 dtTo = new(yearTo, 12, 31);
+        }
+
+        public IQueryable<Repository> FilterRepoIdBySingleQueryParam(string q, IQueryable<Repository> repositories)
+        {
+            IQueryable<long> filter = (from r in repositories
+                                       join d in _context.RepositoryDs on r.RepositoryId equals d.RepositoryId
+                                       join a in _context.Authors on d.AuthorId equals a.AuthorId
+                                       where a.FirstName.Contains(q) || a.LastName.Contains(q) || r.Title.Contains(q) || r.Description.Contains(q)
+                                       select r.RepositoryId).Distinct();
+
+            return repositories.Where(r => filter.Contains(r.RepositoryId));
         }
     }
 }

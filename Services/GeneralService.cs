@@ -41,6 +41,30 @@ namespace fekon_repository_dataservice.Services
             await _context.SaveChangesAsync();
         }
 
+        public async Task<string> DeleteRefRepositoryFileType(long id)
+        {
+            string msgRes = string.Empty;
+            try
+            {
+                if (CheckIsFileTypeOnUsing(id))
+                {
+                    msgRes = "Repository File Type is on Using";
+                }
+                else
+                {
+                    RefRepositoryFileType rrft = _context.RefRepositoryFileTypes.Find(id);
+                    _context.RefRepositoryFileTypes.Remove(rrft);
+                    await _context.SaveChangesAsync();
+                }
+            }
+            catch (System.Exception e)
+            {
+                msgRes = e.Message;
+            }
+
+            return msgRes;
+        }
+
         public bool CheckDuplicateCode(string code, long? id)
         {
             bool isdup = false;
@@ -113,5 +137,10 @@ namespace fekon_repository_dataservice.Services
             return keycode;
         }
         #endregion
+
+        private bool CheckIsFileTypeOnUsing(long filetype)
+        {
+            return _context.FileDetails.Where(f => f.RefRepositoryFileTypeId == filetype).Any();
+        }
     }
 }

@@ -31,41 +31,29 @@ namespace fekon_repository_dataservice.Services
             if (subcategory > 0)
                 rep = rep.Where(r => r.CollectionDid == subcategory);
 
-
-            IQueryable<long> listrepo = (from r in rep
-                                         join repd in (from rd in _context.RepositoryDs
-                                                       join a in _context.Authors on rd.AuthorId equals a.AuthorId
-                                                       select new
-                                                       {
-                                                           rd.RepositoryId,
-                                                           a.LastName,
-                                                           a.FirstName
-                                                       }) on r.RepositoryId equals repd.RepositoryId
-                                         //      //join repk in (from rk in _context.RepositoryKeywords
-                                         //      //              join refk in _context.RefKeywords on rk.RefKeywordId equals refk.RefKeywordId
-                                         //      //              select new
-                                         //      //              {
-                                         //      //                  rk.RepostioryId,
-                                         //      //                  refk.KeywordName
-                                         //      //              }) on r.RepositoryId equals repk.RepostioryId
-                                         where r.Title.Contains(query) || r.Description.Contains(query) || repd.FirstName.Contains(query) || repd.LastName.Contains(query) //|| repk.KeywordName.Contains(query)
-                                         select r.RepositoryId).Distinct();
-
+            rep = FilterRepoIdBySingleQueryParam(query, rep);
+            //IQueryable<long> listrepo = (from r in rep
+            //                             join repd in (from rd in _context.RepositoryDs
+            //                                           join a in _context.Authors on rd.AuthorId equals a.AuthorId
+            //                                           select new
+            //                                           {
+            //                                               rd.RepositoryId,
+            //                                               a.LastName,
+            //                                               a.FirstName
+            //                                           }) on r.RepositoryId equals repd.RepositoryId
+            //                             //      //join repk in (from rk in _context.RepositoryKeywords
+            //                             //      //              join refk in _context.RefKeywords on rk.RefKeywordId equals refk.RefKeywordId
+            //                             //      //              select new
+            //                             //      //              {
+            //                             //      //                  rk.RepostioryId,
+            //                             //      //                  refk.KeywordName
+            //                             //      //              }) on r.RepositoryId equals repk.RepostioryId
+            //                             where r.Title.Contains(query) || r.Description.Contains(query) || repd.FirstName.Contains(query) || repd.LastName.Contains(query) //|| repk.KeywordName.Contains(query)
+            //                             select r.RepositoryId).Distinct();
 
             rep = rep.Include(r => r.RepositoryDs).ThenInclude(a => a.Author)
                      .Include(s => s.RepoStatistics)
-                     .Include(c => c.CollectionD)
-                     .Include(r => r.RefCollection)
                      .AsNoTracking();
-
-            rep = rep.Where(x => listrepo.Contains(x.RepositoryId));
-
-            //rep = rep.OrderByDescending(r => r.RepositoryId)
-            //    .Include(r => r.RepositoryDs).ThenInclude(a => a.Author)
-            //         .Include(s => s.RepoStatistics)
-            //         .Include(c => c.CollectionD)
-            //         .Include(r => r.RefCollection)
-            //         .AsNoTracking();
 
             return rep;
         }
@@ -97,10 +85,10 @@ namespace fekon_repository_dataservice.Services
             IQueryable<MergeAuthorGrouping> finalRes = from a in authors
                                                        join r in _context.RepositoryDs on a.AuthorId equals r.AuthorId
                                                        join rep in _context.Repositories on r.RepositoryId equals rep.RepositoryId
-                                                       orderby a.FirstName ascending
                                                        where rep.RefCollectionId == rcId && rep.CollectionDid == colldId
                                                        group a by new { a.AuthorId, a.FirstName, a.LastName } into grpRes
                                                        where grpRes.Count() > 0
+                                                       orderby grpRes.Key.FirstName
                                                        select new MergeAuthorGrouping
                                                        {
                                                            Id = grpRes.Key.AuthorId,
@@ -168,7 +156,7 @@ namespace fekon_repository_dataservice.Services
                                                      KeywordName = grp.Key.KeywordName,
                                                      KeywordCode = grp.Key.KeywordCode,
                                                      Count = grp.Count()
-                                                 }).Take(5);
+                                                 });
 
             return data;
         }

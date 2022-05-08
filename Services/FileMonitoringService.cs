@@ -1,12 +1,10 @@
 ﻿using fekon_repository_api;
 using fekon_repository_datamodel.Models;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
 
 namespace fekon_repository_dataservice.Services
