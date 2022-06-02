@@ -38,7 +38,7 @@ namespace fekon_repository_dataservice.Services
             }
             else
             {
-                authors =authors.Where(a => a.FirstName.Contains(name) || a.LastName.Contains(name));
+                authors = authors.Where(a => a.FirstName.Contains(name) || a.LastName.Contains(name));
             }
             return authors;
         }
@@ -214,6 +214,11 @@ namespace fekon_repository_dataservice.Services
             await _context.SaveChangesAsync();
 
             return res;
+        }
+
+        public int GetTotalAuthor()
+        {
+            return _context.Authors.Count();
         }
 
         private bool CheckInUsedAuthor(long authorid)

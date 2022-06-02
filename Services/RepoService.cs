@@ -278,6 +278,7 @@ namespace fekon_repository_dataservice.Services
                                                        where f.RepositoryId == repository.RepositoryId && ft.RepositoryFileTypeCode == repofile.FileTypeCode
                                                        select f).FirstOrDefault();
 
+                        List<FileDetail> fileDetails = new();
                         if (updateFileDetail is not null)
                         {
                             string dir = updateFileDetail.FilePath;
@@ -288,9 +289,14 @@ namespace fekon_repository_dataservice.Services
                                 {
                                     DeleteFolder(filesToDelete, dir, true);
                                 }
+
+                                fileDetails = UploadFile(files, (long)repository.RefCollectionId, updateFileDetail, existingPath: dir);
+                            }
+                            else
+                            {
+                                fileDetails = UploadFile(files, (long)repository.RefCollectionId, updateFileDetail);
                             }
 
-                            List<FileDetail> fileDetails = UploadFile(files, (long)repository.RefCollectionId, updateFileDetail, existingPath: dir);
                             foreach (FileDetail fd in fileDetails)
                             {
                                 _context.FileDetails.Update(fd);
@@ -299,7 +305,7 @@ namespace fekon_repository_dataservice.Services
                         else
                         {
                             string existingpath = _context.FileDetails.Where(r => r.RepositoryId == repository.RepositoryId).Select(f => f.FilePath).FirstOrDefault();
-                            List<FileDetail> fileDetails = UploadFile(files, (long)repository.RefCollectionId, existingPath: existingpath);
+                            fileDetails = UploadFile(files, (long)repository.RefCollectionId, existingPath: existingpath);
                             foreach (FileDetail fd in fileDetails)
                             {
                                 repository.FileDetails.Add(fd);
@@ -485,6 +491,11 @@ namespace fekon_repository_dataservice.Services
             return _context.FileDetails.Where(f => f.RepositoryId == repoid && f.RefRepositoryFileTypeId == typeid).Any();
         }
 
+        public int GetTotalRepository()
+        {
+            return _context.Repositories.Count();
+        }
+
         #region REPOSITORY REPORT
         public DataTable GetDataReportStatPeryear(int year)
         {
@@ -597,19 +608,19 @@ namespace fekon_repository_dataservice.Services
             return listGrpYear;
         }
 
-        public IQueryable<Repository> MoreSearchResult(string title, long? type, long? colld, int? year, int? yearTo, string author)
+        public IQueryable<Repository> MoreSearchResult(MergeMoreSearch searchmodel)
         {
             IQueryable<Repository> result = _context.Repositories;
 
-            if (!string.IsNullOrWhiteSpace(title))
+            if (!string.IsNullOrWhiteSpace(searchmodel.title))
             {
-                result = result.Where(t => t.Title.Contains(title));
+                result = FilterRepoIdBySingleQueryParam(searchmodel.title, result, isTitleOnly: true);
             }
 
-            if (year is not null)
+            if (searchmodel.yearfrom is not null)
             {
-                SetParamDateBetweenYear((int)year, yearTo ?? 0, out DateTime dtStart, out DateTime dtTo);
-                if (yearTo is not null)
+                SetParamDateBetweenYear((int)searchmodel.yearfrom, searchmodel.yearto ?? 0, out DateTime dtStart, out DateTime dtTo);
+                if (searchmodel.yearto is not null)
                 {
                     result = result.Where(y => y.PublishDate >= dtStart && y.PublishDate <= dtTo);
                 }
@@ -619,29 +630,25 @@ namespace fekon_repository_dataservice.Services
                 }
             }
 
-            if (type is not null)
+            if (searchmodel.collection is not null)
             {
                 result = from r in result
                          join c in _context.RefCollections on r.RefCollectionId equals c.RefCollectionId
-                         where c.RefCollectionId == type
+                         where c.RefCollectionId == searchmodel.collection
                          select r;
             }
 
-            if (colld is not null)
+            if (searchmodel.subcollection is not null)
             {
                 result = from r in result
                          join c in _context.CollectionDs on r.CollectionDid equals c.CollectionDid
-                         where c.CollectionDid == colld
+                         where c.CollectionDid == searchmodel.subcollection
                          select r;
             }
 
-            if (!string.IsNullOrWhiteSpace(author))
+            if (!string.IsNullOrWhiteSpace(searchmodel.name))
             {
-                result = from r in result
-                         join d in _context.RepositoryDs on r.RepositoryId equals d.RepositoryId
-                         join a in _context.Authors on d.AuthorId equals a.AuthorId
-                         where a.FirstName.Contains(author) || a.LastName.Contains(author)
-                         select r;
+                result = FilterRepoIdBySingleQueryParam(searchmodel.name, result, isNameOnly: true);
             }
 
             result = result.Include(d => d.RepositoryDs).ThenInclude(a => a.Author)
@@ -708,7 +715,7 @@ namespace fekon_repository_dataservice.Services
         #endregion
 
         #region PRIVATE METHOD
-        private string CheckFileStatus(string path)
+        private static string CheckFileStatus(string path)
         {
             string resMsg = "Ok";
             if (Directory.Exists(path))

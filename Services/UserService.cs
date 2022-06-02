@@ -207,6 +207,17 @@ namespace fekon_repository_dataservice.Services
             await _context.SaveChangesAsync();
         }
 
+        public int GetTotalUser()
+        {
+            int total = (from u in _context.AspNetUsers
+                         join r in _context.AspNetUserRoles on u.Id equals r.UserId
+                         join rr in _context.AspNetRoles on r.RoleId equals rr.Id
+                         where rr.NormalizedName == VISITOR
+                         select u).Count();
+
+            return total;
+        }
+
         private static async Task<string> UploadUsrPic(string fileLoc, string username, IFormFile file)
         {
             string dir = Path.Combine(fileLoc, username);

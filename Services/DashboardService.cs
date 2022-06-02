@@ -13,20 +13,26 @@ namespace fekon_repository_dataservice.Services
 {
     public class DashboardService : BaseService, IDashboardService
     {
-        public DashboardService(REPOSITORY_DEVContext context) 
+        private readonly IAuthorService _authorService;
+        private readonly IUserService _userService;
+        private readonly IRepoService _repoService;
+        public DashboardService(REPOSITORY_DEVContext context, IAuthorService authorService, IUserService userService, IRepoService repoService) 
             : base(context)
         {
+            _authorService = authorService;
+            _userService = userService;
+            _repoService = repoService;
         }
 
         public async Task<IEnumerable<TotalRepositoryPerColl>> SetTotalRepoPerCollection()
         {
             IEnumerable<TotalRepositoryPerColl> countData = await (from r in _context.Repositories
                                                                    join t in _context.RefCollections on r.RefCollectionId equals t.RefCollectionId
-                                                                   group r by t.RefCollectionId into resGrp
+                                                                   group r by new { t.RefCollectionId, t.CollName } into resGrp
                                                                    select new TotalRepositoryPerColl
                                                                    {
                                                                        Data = resGrp.Count(),
-                                                                       CollName = _context.RefCollections.Where(x => x.RefCollectionId == resGrp.Key).Select(x => x.CollName).FirstOrDefault()
+                                                                       CollName = resGrp.Key.CollName
                                                                    }).ToListAsync();
 
             return countData;
@@ -34,22 +40,13 @@ namespace fekon_repository_dataservice.Services
 
         public async Task<IEnumerable<TotalRepositoryPerType>> SetTotalRepoPerType()
         {
-            var data = (from r in _context.Repositories
-                        join t in _context.CollectionDs on r.CollectionDid equals t.CollectionDid
-                        group t by t.CollectionDid into resGrp
-                        select new
-                        {
-                            Data = resGrp.Count(),
-                            TypeName = resGrp.Key
-                            //TypeName = _context.CollectionDs.Where(c => c.CollectionDid == resGrp.Key).Select(c => c.CollectionDname).FirstOrDefault() + " - " + _collectionService.FindRefCollectionByCollDId(resGrp.Key).CollCode
-                        });
-
-            List<TotalRepositoryPerType> countData = await (from r in data
-                                                            join c in _context.CollectionDs on r.TypeName equals c.CollectionDid
+            List<TotalRepositoryPerType> countData = await (from r in _context.Repositories
+                                                            join c in _context.CollectionDs on r.CollectionDid equals c.CollectionDid
+                                                            group r by new { c.CollectionDid, c.CollectionDname } into resGrp
                                                             select new TotalRepositoryPerType
                                                             {
-                                                                Data = r.Data,
-                                                                TypeName = c.CollectionDname
+                                                                Data = resGrp.Count(),
+                                                                TypeName = resGrp.Key.CollectionDname
                                                             }).ToListAsync();
             return countData;
         }
@@ -94,10 +91,10 @@ namespace fekon_repository_dataservice.Services
             List<double> totSize = _context.FileDetails.Select(f => Convert.ToDouble(f.FileSize) * 0.000001).ToList();
             double fileSize = totSize.Sum();
 
-            string totalAuthor = _context.Authors.Count().ToString("N", nfi);
+            string totalAuthor = _authorService.GetTotalAuthor().ToString("N", nfi);
             string totalFileSize = $"{fileSize.ToString("N",nfi2)} MB";
-            string totalUser = _context.AspNetUsers.Count().ToString("N", nfi);
-            string totalRepos = _context.Repositories.Count().ToString("N", nfi);
+            string totalUser = _userService.GetTotalUser().ToString("N", nfi);
+            string totalRepos = _repoService.GetTotalRepository().ToString("N", nfi);
 
             string totalDownload = string.Empty, totalViews = string.Empty;
 
